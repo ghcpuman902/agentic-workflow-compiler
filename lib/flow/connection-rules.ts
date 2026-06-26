@@ -29,7 +29,19 @@ const ALLOWED_EDGES: AllowedEdge[] = [
     targetHandle: "in",
   },
   {
+    sourceType: "url",
+    sourceHandle: "out",
+    targetType: "llm",
+    targetHandle: "in",
+  },
+  {
     sourceType: "spider",
+    sourceHandle: "out",
+    targetType: "preview",
+    targetHandle: "in",
+  },
+  {
+    sourceType: "llm",
     sourceHandle: "out",
     targetType: "preview",
     targetHandle: "in",
