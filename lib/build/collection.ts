@@ -19,6 +19,7 @@ import { createCodeGen } from "@/lib/build/cursor-agent"
 import { runInProcess } from "@/lib/build/execute"
 import { cacheGet, cacheSet } from "@/lib/cache/fs-cache"
 import { traceEvent } from "@/lib/trace/trace"
+import { serializeCollection } from "@/lib/workflow/serialize-records"
 import type {
   BuildArtifact,
   CollectionFormat,
@@ -444,34 +445,8 @@ const EXT: Record<CollectionFormat, string> = {
   ts: "ts",
 }
 
-function csvEscape(value: unknown): string {
-  let s: string
-  if (value == null) s = ""
-  else if (typeof value === "object") s = JSON.stringify(value)
-  else s = String(value)
-  if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`
-  return s
-}
-
 function serialize(records: unknown[], format: CollectionFormat): string {
-  if (format === "jsonl") {
-    return records.map((r) => JSON.stringify(r)).join("\n")
-  }
-  if (format === "ts") {
-    return `export const records = ${JSON.stringify(records, null, 2)} as const\n`
-  }
-  // csv
-  const objects = records.filter(isPlainRecord)
-  const headerSet = new Set<string>()
-  for (const obj of objects) {
-    for (const k of Object.keys(obj)) headerSet.add(k)
-  }
-  const headers = [...headerSet]
-  const lines = [headers.map(csvEscape).join(",")]
-  for (const obj of objects) {
-    lines.push(headers.map((h) => csvEscape(obj[h])).join(","))
-  }
-  return lines.join("\n")
+  return serializeCollection(records, format)
 }
 
 function preview(serialized: string): string {

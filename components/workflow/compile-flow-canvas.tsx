@@ -295,6 +295,7 @@ const CompileFlowCanvasInner = () => {
             repairCount: artifact.repairCount,
             buildModelCalls: artifact.buildModelCalls,
             agent: artifact.agent ?? "gemini",
+            records: artifact.records ?? [],
           },
         }))
 
@@ -384,6 +385,7 @@ const CompileFlowCanvasInner = () => {
             preview: payload.result.preview,
             recordCount: payload.result.recordCount,
             urlsRun: payload.result.urlsRun,
+            records: payload.result.records ?? [],
           },
         }))
       } catch (error) {

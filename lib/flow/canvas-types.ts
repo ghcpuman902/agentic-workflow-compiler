@@ -44,6 +44,9 @@ export type SpiderBuildResult = {
   repairCount: number
   buildModelCalls: number
   agent: "cursor" | "gemini"
+  /** Extracted records (golden set), kept so the preview can re-serialize on
+   * the fly when the output format changes — without a rebuild. */
+  records?: unknown[]
 }
 
 /** Result of a deterministic run across all supplied URLs. */
@@ -51,6 +54,8 @@ export type SpiderRunResult = {
   preview: string
   recordCount: number
   urlsRun: number
+  /** Full run records, kept for on-the-fly preview re-serialization. */
+  records?: unknown[]
 }
 
 export type SpiderPayload = {

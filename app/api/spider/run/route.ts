@@ -68,6 +68,7 @@ export async function POST(request: Request) {
         preview: result.preview,
         recordCount: result.records.length,
         urlsRun: result.urlsRun,
+        records: result.records,
       },
       traceSummary,
     });

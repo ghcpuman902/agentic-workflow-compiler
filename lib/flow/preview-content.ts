@@ -1,6 +1,11 @@
 import type { FlowNodeData, SpiderNodeData, UrlNodeData } from "@/lib/flow/canvas-types"
 import type { PreviewMode } from "@/lib/flow/preview-modes"
 import { parseUrlLines } from "@/lib/workflow/sample-urls"
+import {
+  resolveOutput,
+  type CollectionFormat,
+} from "@/lib/workflow/content-types"
+import { serializeCollection } from "@/lib/workflow/serialize-records"
 
 export type PreviewDisplayKind =
   | "table"
@@ -288,7 +293,30 @@ export const resolvePreviewFromText = (text: string): PreviewContent => {
 export const resolvePreviewFromSpider = (
   spider: SpiderNodeData,
 ): PreviewContent => {
-  // Prefer real extracted output: a deterministic run, else the build preview.
+  // The Output-item dropdown drives the format. Re-serialize the already
+  // extracted records (run preferred, else the golden build set) to the
+  // currently selected collection format — instant, no rebuild / model call.
+  const records = spider.run?.records ?? spider.build?.records
+  const { family, format } = resolveOutput(spider.itemType, spider.cardinality)
+  if (family === "collection" && Array.isArray(records) && records.length > 0) {
+    const collectionFormat = format as CollectionFormat
+    if (collectionFormat === "csv") {
+      return {
+        title: spider.label,
+        slice: { kind: "csv", body: serializeCollection(records, "csv") },
+      }
+    }
+    if (collectionFormat === "ts") {
+      return {
+        title: spider.label,
+        slice: { kind: "text", body: serializeCollection(records, "ts") },
+      }
+    }
+    // jsonl (the array-of-records default) — render the records as a table.
+    return arrayToPreview(records, spider.label)
+  }
+
+  // Otherwise fall back to whatever the spider serialized at build/run time.
   const serialized = spider.run?.preview ?? spider.build?.preview
   if (serialized && serialized.trim()) {
     return resolvePreviewFromText(serialized)
