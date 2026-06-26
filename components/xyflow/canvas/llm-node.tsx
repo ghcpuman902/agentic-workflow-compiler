@@ -27,7 +27,33 @@ import {
 } from "@/components/ui/select"
 import { cn } from "@/lib/utils"
 
+import { runGeminiAction } from "@/app/actions/llm"
+import type { FlowNodeData, SpiderNodeData, UrlNodeData } from "@/lib/flow/canvas-types"
+
 const DEFAULT_H = 240
+
+const getSourceRawText = (
+  sourceType: string | null,
+  data: unknown,
+): string => {
+  if (sourceType === "url" && data && typeof data === "object" && "url" in data) {
+    return String((data as UrlNodeData).url ?? "")
+  }
+
+  if (sourceType === "spider" && data && typeof data === "object") {
+    const spider = data as SpiderNodeData
+    const pageUrls = spider.discovery?.pages.map((page) => page.url) ?? []
+    if (pageUrls.length > 0) return pageUrls.join("\n")
+    if (spider.run?.preview) return spider.run.preview
+    if (spider.build?.preview) return spider.build.preview
+  }
+
+  if (sourceType === "llm" && data && typeof data === "object" && "preview" in data) {
+    return String((data as any).preview ?? "")
+  }
+
+  return ""
+}
 
 export const LlmNode = memo(function LlmNode({
   id,
@@ -47,6 +73,9 @@ export const LlmNode = memo(function LlmNode({
   })
   
   const sourceId = connections[0]?.source ?? null
+  const sourceNode = useStore((state) =>
+    sourceId ? state.nodes.find((node) => node.id === sourceId) : undefined,
+  )
 
   useEffect(() => {
     setPromptValue(data.prompt || "")
@@ -63,22 +92,52 @@ export const LlmNode = memo(function LlmNode({
     setEditing(false)
   }
 
+  const [isRunning, setIsRunning] = useState(false)
+  
   const handleRun = async () => {
-    // For now, it just sets a dummy output based on the user's setup since we don't have the action implemented here yet, or we could implement a basic API call if we wanted.
-    // The prompt asks for a "simple new node that just take text node input and with a prompt and some common settings ... which output preview compatible outputs depending on user request"
-    const outputValue = data.outputMethod === "json" 
-      ? JSON.stringify({ 
-          model: data.modelType, 
-          reasoning: data.reasoningLevel, 
-          prompt: promptValue,
-          response: "This is a simulated JSON response from Gemini based on the prompt."
-        }, null, 2)
-      : `Simulated Gemini response (${data.reasoningLevel} reasoning):\n\n${promptValue ? 'Processed: ' + promptValue : 'No prompt provided.'}`;
+    if (!promptValue.trim()) return
 
-    updateNodeData(id, (current) => ({
-      ...(current as LlmNodeData),
-      preview: outputValue,
-    }))
+    setIsRunning(true)
+    
+    // Attempt to resolve input text from source node
+    let inputText = ""
+    if (sourceId && sourceNode) {
+      const fromStore = getSourceRawText(sourceNode.type ?? null, sourceNode.data)
+      if (fromStore.trim()) {
+        inputText = fromStore
+      } else {
+        inputText = getSourceRawText(sourceNode.type ?? null, getNodeData(sourceId))
+      }
+    }
+
+    try {
+      const result = await runGeminiAction({
+        prompt: promptValue,
+        inputText: inputText || "No input provided.",
+        modelType: data.modelType,
+        reasoningLevel: data.reasoningLevel,
+        outputMethod: data.outputMethod,
+      })
+
+      if (result.success && result.text) {
+        updateNodeData(id, (current) => ({
+          ...(current as LlmNodeData),
+          preview: result.text,
+        }))
+      } else {
+        updateNodeData(id, (current) => ({
+          ...(current as LlmNodeData),
+          preview: `Error: ${result.error}`,
+        }))
+      }
+    } catch (e) {
+      updateNodeData(id, (current) => ({
+        ...(current as LlmNodeData),
+        preview: `Error: ${String(e)}`,
+      }))
+    } finally {
+      setIsRunning(false)
+    }
   }
 
   return (
@@ -102,14 +161,18 @@ export const LlmNode = memo(function LlmNode({
         <span className={flowHeaderVioletTitle}>LLM (Gemini)</span>
         
         <div className="ml-auto flex items-center gap-1">
-          <button
-            type="button"
-            onClick={handleRun}
-            className={flowNodeIconButton}
-            title="Run Prompt"
-          >
-            <Play className="size-3.5" />
-          </button>
+          {isRunning ? (
+            <Loader2 className="size-3.5 animate-spin text-violet-500" />
+          ) : (
+            <button
+              type="button"
+              onClick={handleRun}
+              className={flowNodeIconButton}
+              title="Run Prompt"
+            >
+              <Play className="size-3.5" />
+            </button>
+          )}
         </div>
       </div>
 
