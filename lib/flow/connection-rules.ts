@@ -1,5 +1,7 @@
 import type { Connection, Node } from "@xyflow/react"
 
+import type { FlowNodeKind } from "@/lib/flow/canvas-types"
+
 type AllowedEdge = {
   sourceType: string
   sourceHandle: string
@@ -49,6 +51,26 @@ export const isAllowedConnection = (
       rule.sourceHandle === (connection.sourceHandle ?? "out") &&
       rule.targetHandle === (connection.targetHandle ?? "in"),
   )
+}
+
+export const getConnectableTargetKinds = (
+  sourceNodeId: string,
+  sourceHandle: string | null,
+  nodes: Node[],
+): FlowNodeKind[] => {
+  const source = nodes.find((node) => node.id === sourceNodeId)
+  if (!source?.type) return []
+
+  const handle = sourceHandle ?? "out"
+  const kinds = new Set<FlowNodeKind>()
+
+  for (const rule of ALLOWED_EDGES) {
+    if (rule.sourceType === source.type && rule.sourceHandle === handle) {
+      kinds.add(rule.targetType as FlowNodeKind)
+    }
+  }
+
+  return [...kinds]
 }
 
 export const findEdgeToTargetHandle = (

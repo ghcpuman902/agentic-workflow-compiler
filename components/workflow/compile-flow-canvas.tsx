@@ -24,6 +24,7 @@ import {
   useReactFlow,
   type Connection,
   type Edge,
+  type FinalConnectionState,
   type Node,
   type OnConnectStartParams,
 } from "@xyflow/react"
@@ -46,6 +47,7 @@ import {
   type FlowNodeKind,
   type SpiderNodeData,
   type UrlNodeData,
+  type LlmNodeData,
 } from "@/lib/flow/canvas-types"
 import {
   buildDiscoverSteps,
@@ -55,6 +57,7 @@ import {
 } from "@/lib/flow/discover-activity"
 import {
   findEdgeToTargetHandle,
+  getConnectableTargetKinds,
   isAllowedConnection,
 } from "@/lib/flow/connection-rules"
 import { resolveDiscoverySelection } from "@/lib/workflow/discovery-intent"
@@ -116,6 +119,20 @@ const makeFlowNode = (
         data: { kind: "preview", itemIndex: 0, mode: "auto" },
         style: { width, height },
       }
+    case "llm":
+      return {
+        id,
+        type: "llm",
+        position,
+        data: { 
+          kind: "llm", 
+          prompt: "", 
+          modelType: "gemini", 
+          reasoningLevel: "none", 
+          outputMethod: "text" 
+        } satisfies LlmNodeData,
+        style: { width, height },
+      }
     default:
       return makeTextNode(position)
   }
@@ -151,6 +168,11 @@ const CompileFlowCanvasInner = () => {
     x: number
     y: number
     flowPos: { x: number; y: number }
+    pendingConnection?: {
+      source: string
+      sourceHandle: string | null
+    }
+    allowedKinds?: FlowNodeKind[]
   } | null>(null)
   const canvasAreaRef = useRef<HTMLDivElement>(null)
 
@@ -246,6 +268,7 @@ const CompileFlowCanvasInner = () => {
       const { family, format } = resolveOutput(
         spider.itemType,
         spider.cardinality,
+        spider.suggestion?.family
       )
 
       patchSpider(factoryId, spiderId, () => ({
@@ -354,6 +377,7 @@ const CompileFlowCanvasInner = () => {
       const { family, format } = resolveOutput(
         spider.itemType,
         spider.cardinality,
+        spider.suggestion?.family
       )
 
       patchSpider(spider.factoryId, spiderId, () => ({
@@ -736,13 +760,42 @@ const CompileFlowCanvasInner = () => {
     (kind: FlowNodeKind) => {
       if (!addMenu) return
       const node = makeFlowNode(kind, addMenu.flowPos)
-      setNodes((current) => [
-        ...current.map((item) => ({ ...item, selected: false })),
+      const pending = addMenu.pendingConnection
+      const nextNodes = [
+        ...nodesRef.current.map((item) => ({ ...item, selected: false })),
         { ...node, selected: true },
-      ])
+      ]
+
+      setNodes(nextNodes)
+
+      if (pending) {
+        const connection: Connection = {
+          source: pending.source,
+          sourceHandle: pending.sourceHandle,
+          target: node.id,
+          targetHandle: "in",
+        }
+
+        if (isAllowedConnection(connection, nextNodes)) {
+          setEdges((current) => {
+            const withoutTarget = current.filter(
+              (edge) =>
+                !(
+                  edge.target === connection.target &&
+                  (edge.targetHandle ?? null) === (connection.targetHandle ?? null)
+                ),
+            )
+            return addEdge(
+              { ...connection, style: edgeStyle, markerEnd, reconnectable: true },
+              withoutTarget,
+            )
+          })
+        }
+      }
+
       setAddMenu(null)
     },
-    [addMenu, setNodes],
+    [addMenu, setNodes, setEdges],
   )
 
   const openAddMenuAtScreen = useCallback(
@@ -837,6 +890,40 @@ const CompileFlowCanvasInner = () => {
       })
     },
     [setEdges],
+  )
+
+  const handleConnectEnd = useCallback(
+    (event: MouseEvent | TouchEvent, connectionState: FinalConnectionState) => {
+      if (connectionState.isValid === true) return
+      if (connectionState.fromHandle?.type !== "source") return
+      if (!connectionState.fromNode) return
+
+      const clientX = "clientX" in event ? event.clientX : event.touches[0]?.clientX
+      const clientY = "clientY" in event ? event.clientY : event.touches[0]?.clientY
+      if (clientX == null || clientY == null) return
+
+      const sourceId = connectionState.fromNode.id
+      const sourceHandle = connectionState.fromHandle.id ?? null
+      const allowedKinds = getConnectableTargetKinds(
+        sourceId,
+        sourceHandle,
+        nodesRef.current,
+      ).filter((kind) => kind !== "spider")
+
+      if (allowedKinds.length === 0) return
+
+      const menuState = {
+        x: clientX,
+        y: clientY,
+        flowPos: screenToFlowPosition({ x: clientX, y: clientY }),
+        pendingConnection: { source: sourceId, sourceHandle },
+        allowedKinds,
+      }
+
+      // Defer so onPaneClick from the same mouseup does not immediately dismiss the menu.
+      window.setTimeout(() => setAddMenu(menuState), 0)
+    },
+    [screenToFlowPosition],
   )
 
   const handleReconnectStart = useCallback(() => {
@@ -974,6 +1061,7 @@ const CompileFlowCanvasInner = () => {
             onEdgesChange={onEdgesChange}
             onConnect={handleConnect}
             onConnectStart={handleConnectStart}
+            onConnectEnd={handleConnectEnd}
             onReconnect={handleReconnect}
             onReconnectStart={handleReconnectStart}
             onReconnectEnd={handleReconnectEnd}
@@ -987,7 +1075,7 @@ const CompileFlowCanvasInner = () => {
             minZoom={0.15}
             maxZoom={2}
             colorMode={isDarkCanvas ? "dark" : "light"}
-            deleteKeyCode={null}
+            deleteKeyCode={["Backspace", "Delete", "x", "X"]}
             panOnDrag={[1, 2]}
             proOptions={{ hideAttribution: true }}
           >
@@ -1005,10 +1093,10 @@ const CompileFlowCanvasInner = () => {
 
             <Panel position="bottom-left">
               <div className="rounded border border-border bg-background/85 px-2 py-1 backdrop-blur-sm">
-                <span className="font-mono text-[9px] text-muted-foreground">
-                  Shift+A&nbsp;add&nbsp;·&nbsp;F&nbsp;fit&nbsp;·&nbsp;.&nbsp;focus
-                  ·&nbsp;drag input to disconnect
-                </span>
+              <span className="font-mono text-[9px] text-muted-foreground">
+                Shift+A&nbsp;add&nbsp;·&nbsp;X&nbsp;delete&nbsp;·&nbsp;F&nbsp;fit&nbsp;·&nbsp;.&nbsp;focus
+                ·&nbsp;drag output to empty to add&nbsp;·&nbsp;drag input to disconnect
+              </span>
               </div>
             </Panel>
           </ReactFlow>
@@ -1017,6 +1105,7 @@ const CompileFlowCanvasInner = () => {
             <AddNodeMenu
               x={addMenu.x}
               y={addMenu.y}
+              allowedKinds={addMenu.allowedKinds}
               onSelect={handleAddNode}
               onClose={() => setAddMenu(null)}
             />

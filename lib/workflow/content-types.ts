@@ -63,11 +63,16 @@ export type ResolvedOutput = {
 export const resolveOutput = (
   itemType: ItemType,
   cardinality: Cardinality,
+  suggestionFamily?: "document" | "collection"
 ): ResolvedOutput => {
   if (itemType === "csv-row") return { family: "collection", format: "csv" }
-  if (itemType === "json" && cardinality === "array")
-    return { family: "collection", format: "jsonl" }
-  if (itemType === "json") return { family: "document", format: "json" }
+  if (itemType === "json") {
+    // If discovery explicitly suggested a collection (even for a single URL), honor it.
+    if (suggestionFamily === "collection" || cardinality === "array") {
+      return { family: "collection", format: "jsonl" }
+    }
+    return { family: "document", format: "json" }
+  }
   // markdown + html (html approximated as markdown until a real HTML writer exists)
   return { family: "document", format: "md" }
 }

@@ -5,7 +5,7 @@ import type {
   Suggestion,
 } from "@/lib/workflow/content-types"
 
-export type FlowNodeKind = "url" | "discover-factory" | "spider" | "preview"
+export type FlowNodeKind = "url" | "discover-factory" | "spider" | "preview" | "llm"
 
 export type ActivityStepStatus = "pending" | "running" | "complete" | "error"
 
@@ -115,11 +115,21 @@ export type PreviewNodeData = {
   mode: PreviewMode
 }
 
+export type LlmNodeData = {
+  kind: "llm"
+  prompt: string
+  modelType: "gemini"
+  reasoningLevel: "none" | "low" | "high"
+  outputMethod: "text" | "json"
+  preview?: string
+}
+
 export type FlowNodeData =
   | UrlNodeData
   | DiscoverFactoryData
   | SpiderNodeData
   | PreviewNodeData
+  | LlmNodeData
 
 export const NODE_DEFAULT_SIZE: Record<
   FlowNodeKind,
@@ -129,6 +139,7 @@ export const NODE_DEFAULT_SIZE: Record<
   "discover-factory": { width: 380, height: 260 },
   spider: { width: 260, height: 200 },
   preview: { width: 360, height: 320 },
+  llm: { width: 280, height: 240 },
 }
 
 export const FACTORY_EXPANDED_HEIGHT = 420

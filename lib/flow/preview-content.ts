@@ -297,7 +297,7 @@ export const resolvePreviewFromSpider = (
   // extracted records (run preferred, else the golden build set) to the
   // currently selected collection format — instant, no rebuild / model call.
   const records = spider.run?.records ?? spider.build?.records
-  const { family, format } = resolveOutput(spider.itemType, spider.cardinality)
+  const { family, format } = resolveOutput(spider.itemType, spider.cardinality, spider.suggestion?.family)
   if (family === "collection" && Array.isArray(records) && records.length > 0) {
     const collectionFormat = format as CollectionFormat
     if (collectionFormat === "csv") {

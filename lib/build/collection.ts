@@ -15,6 +15,7 @@
 import { promises as fs } from "fs"
 import path from "path"
 import { generateJson } from "@/lib/integrations/llm"
+import { extractUrls } from "@/lib/integrations/tavily"
 import { createCodeGen } from "@/lib/build/cursor-agent"
 import { runInProcess } from "@/lib/build/execute"
 import { cacheGet, cacheSet } from "@/lib/cache/fs-cache"
@@ -130,6 +131,65 @@ function truncate(text: string | undefined, limit = PROMPT_CONTENT_LIMIT): strin
   return text.length > limit ? text.slice(0, limit) + "\n...[truncated]" : text
 }
 
+/** Prefer cleaner markdown/outline over raw HTML when building agent prompts. */
+function pickPromptContent(input: ExtractorInput): {
+  text: string
+  source: "Markdown" | "HTML"
+} {
+  const md = input.markdown?.trim()
+  if (md) return { text: md, source: "Markdown" }
+  const html = input.html?.trim()
+  if (html) return { text: html, source: "HTML" }
+  return { text: "", source: "Markdown" }
+}
+
+function summarizePageContext(page: PageInspection): string {
+  const lines = [`URL: ${page.url}`, `Page role: ${page.pageRole}`]
+  if (page.structuredDataTypes.length > 0) {
+    lines.push(
+      `Structured data: ${page.structuredDataTypes.slice(0, 5).join(", ")}`,
+    )
+  }
+  const doc = page.documentSignals
+  if (doc.title) lines.push(`Document title: ${doc.title}`)
+  lines.push(
+    `Content signals: ${doc.headingCount} headings, ${doc.paragraphCount} paragraphs, ${doc.textLength} chars`,
+  )
+  return lines.join("\n")
+}
+
+function summarizeRepeatedGroups(page: PageInspection): string {
+  if (page.repeatedGroups.length === 0) return "(none detected)"
+  const sorted = [...page.repeatedGroups].sort(
+    (a, b) => b.confidence - a.confidence,
+  )
+  return sorted
+    .map((g, i) => {
+      const fields = g.sampleFields
+        .slice(0, 6)
+        .map((f) => {
+          const ex = f.examples
+            ?.slice(0, 2)
+            .map((e) => JSON.stringify(e))
+            .join(", ")
+          return `${f.name} (${f.inferredType}): e.g. ${ex ?? "—"}`
+        })
+        .join("; ")
+      const marker = i === 0 ? " ← TARGET (highest confidence)" : ""
+      return `- ${g.candidateName}: count≈${g.count}, confidence=${g.confidence.toFixed(2)}${marker}\n  Fields: ${fields || "(none)"}`
+    })
+    .join("\n")
+}
+
+const NOISE_EXTRACTION_RULES = `
+Content targeting (critical):
+- Extract ONLY records from the dominant repeated group listed below — the main listing or detail content.
+- IGNORE navigation, footers, cookie banners, advertisements, "related/suggested/similar" sections, sidebar widgets, and social-share blocks.
+- Do NOT treat ad headlines, promo cards, or link-list items as data records even if they repeat structurally.
+- If both html and markdown are present on input, prefer parsing markdown (it is usually cleaner); fall back to html only when markdown is absent.
+- Match record boundaries to the discovered repeated group count — avoid inflating results with peripheral items.
+`
+
 // ---------------------------------------------------------------------------
 // b. Schema inference (model-call / build)
 // ---------------------------------------------------------------------------
@@ -150,7 +210,10 @@ async function inferSchema(
     .map((f) => `${f.name}: ${f.type} (coverage ${Math.round(f.coverage * 100)}%)`)
     .join("\n")
 
-  const content = truncate(sampleInput.html || sampleInput.markdown, 3500)
+  const content = truncate(
+    sampleInput.markdown || sampleInput.html,
+    3500,
+  )
 
   const prompt = `You are designing a typed field schema for a data Collection extracted from web pages.
 
@@ -202,14 +265,22 @@ function schemaSummary(schema: InferredSchema): string {
 
 function extractorPrompt(
   schema: InferredSchema,
+  samplePage: PageInspection,
   sampleInput: ExtractorInput,
+  tavilyReference?: string,
   extraContext?: string,
 ): string {
-  const content = truncate(sampleInput.html || sampleInput.markdown)
-  const source = sampleInput.html ? "HTML" : "Markdown"
+  const { text, source } = pickPromptContent(sampleInput)
+  const content = truncate(text)
   const contextLine = extraContext?.trim()
     ? `\nUser context (prioritise these fields/goals when extracting):\n${extraContext.trim()}\n`
     : ""
+  const pageContext = summarizePageContext(samplePage)
+  const repeatedGroups = summarizeRepeatedGroups(samplePage)
+  const tavilyBlock = tavilyReference
+    ? `\nClean markdown reference (from Tavily, to help identify the core content and ignore noise. DO NOT write regex against this reference; write regex against the Sample Input below!):\n"""\n${truncate(tavilyReference, 2500)}\n"""\n`
+    : ""
+
   return `Write a PLAIN JavaScript (ES2020) extractor. Output ONLY code, no explanation, no markdown fences.
 
 Define exactly one function:
@@ -225,8 +296,15 @@ Hard requirements:
 - Every required string field MUST be present, trimmed, and non-empty on every returned record.
 - Skip partial/garbage records rather than emitting empty required fields.
 - Numbers should be parsed to JS numbers; arrays to JS arrays.
+${NOISE_EXTRACTION_RULES}
 
-Sample ${source} input the extractor will receive (truncated):
+Sample page inspection (from Stage 1 discovery — trust this over raw noise in the content):
+${pageContext}
+
+Discovered repeated groups (extract from the TARGET group, ignore peripheral repeats):
+${repeatedGroups}
+${tavilyBlock}
+Sample ${source} input the extractor will receive (truncated) - YOU MUST PARSE THIS:
 """
 ${content}
 """`
@@ -402,17 +480,21 @@ async function testTool(
 function repairPrompt(
   current: string,
   schema: InferredSchema,
-  report: TestReport
+  report: TestReport,
+  samplePage: PageInspection,
+  tavilyReference?: string,
 ): string {
   const failing = report.cases.filter((c) => !c.passed)
   const failureList = failing
     .map((c) => `- ${c.name}: ${c.message ?? "failed"}`)
     .join("\n")
   const sample = report.sampleFailure
-  const sampleInputText = truncate(
-    sample?.input.html || sample?.input.markdown,
-    3000
-  )
+  const { text } = pickPromptContent(sample?.input ?? {})
+  const sampleInputText = truncate(text, 3000)
+  const repeatedGroups = summarizeRepeatedGroups(samplePage)
+  const tavilyBlock = tavilyReference
+    ? `\nClean markdown reference (from Tavily, to help identify the core content and ignore noise. DO NOT write regex against this reference; write regex against the Sample Input below!):\n"""\n${truncate(tavilyReference, 2500)}\n"""\n`
+    : ""
 
   return `The following PLAIN JavaScript extractor failed its tests. Fix it. Output ONLY corrected code, no explanation, no markdown fences.
 
@@ -425,11 +507,16 @@ ${failureList}
 Failure detail: ${sample?.detail ?? "see tests"}
 
 Key fixes likely needed: trim() every string field, drop records with empty required fields, ensure required fields always present.
+If extracting noise (ads, nav, related links): narrow to the TARGET repeated group and filter peripheral content.
+${NOISE_EXTRACTION_RULES}
 
+Discovered repeated groups (TARGET group):
+${repeatedGroups}
+${tavilyBlock}
 Current extractor:
 ${current}
 
-Sample input that failed (truncated):
+Sample input that failed (truncated) - YOU MUST PARSE THIS:
 """
 ${sampleInputText}
 """`
@@ -481,6 +568,17 @@ export async function buildCollection(
   const samplePage = pages[samplePageIdx]
   const sampleInput = buildInputs[samplePageIdx]
 
+  // Fetch Tavily reference for cleaner prompt context (optional)
+  let tavilyReference: string | undefined
+  try {
+    const extracted = await extractUrls([samplePage.url], { format: "markdown", extractDepth: "basic" })
+    if (extracted && extracted.length > 0) {
+      tavilyReference = extracted[0].content
+    }
+  } catch (error) {
+    // Ignore, just a nice-to-have reference
+  }
+
   // b. Infer schema (model-call build).
   const schema = await inferSchema(runId, suggestion, samplePage, sampleInput)
   buildModelCalls++
@@ -493,7 +591,7 @@ export async function buildCollection(
   try {
     // c. Generate extractor (model-call build).
     source = await codegen.send(
-      extractorPrompt(schema, sampleInput, extraContext),
+      extractorPrompt(schema, samplePage, sampleInput, tavilyReference, extraContext),
       "generate-extractor",
     )
     buildModelCalls++
@@ -507,7 +605,7 @@ export async function buildCollection(
     // e. Repair loop (each patch is a model-call build).
     while (!report.passed && repairCount < MAX_REPAIRS) {
       source = await codegen.send(
-        repairPrompt(source, schema, report),
+        repairPrompt(source, schema, report, samplePage, tavilyReference),
         `repair-extractor-${repairCount + 1}`,
       )
       buildModelCalls++

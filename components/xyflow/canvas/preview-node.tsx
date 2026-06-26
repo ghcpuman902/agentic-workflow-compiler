@@ -62,6 +62,10 @@ const getSourceRawText = (
     if (spider.build?.preview) return spider.build.preview
   }
 
+  if (sourceType === "llm" && data && typeof data === "object" && "preview" in data) {
+    return String((data as any).preview ?? "")
+  }
+
   return ""
 }
 

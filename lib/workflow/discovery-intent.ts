@@ -33,17 +33,29 @@ export const resolveDiscoverySelection = (
 ): DiscoverySelection => {
   const inputIntent = resolveDiscoveryInputIntent(urlCount)
   const cardinality = cardinalityForUrlCount(urlCount)
-  const itemType = defaultItemType(cardinality)
 
+  // Use the highest-confidence suggestion if available
+  const bestSuggestion = suggestions[0] ?? null
+  
+  if (bestSuggestion) {
+    return {
+      inputIntent,
+      cardinality,
+      itemType: bestSuggestion.family === "collection" ? "json" : "markdown",
+      family: bestSuggestion.family,
+      suggestion: bestSuggestion,
+    }
+  }
+
+  // Fallback if no suggestions
+  const itemType = defaultItemType(cardinality)
   if (inputIntent === "collection") {
-    const collection =
-      suggestions.find((s) => s.family === "collection") ?? suggestions[0] ?? null
     return {
       inputIntent,
       cardinality,
       itemType,
       family: "collection",
-      suggestion: collection,
+      suggestion: null,
     }
   }
 
@@ -52,6 +64,6 @@ export const resolveDiscoverySelection = (
     cardinality,
     itemType,
     family: "document",
-    suggestion: suggestions.find((s) => s.family === "document") ?? null,
+    suggestion: null,
   }
 }

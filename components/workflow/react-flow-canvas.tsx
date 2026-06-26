@@ -227,11 +227,11 @@ const ReactFlowCanvasInner = () => {
           onlyRenderVisibleElements
           fitView
           fitViewOptions={{ padding: 0.25 }}
-          minZoom={0.15}
-          maxZoom={2}
-          colorMode="dark"
-          deleteKeyCode={null}
-          panOnDrag={[1, 2]}
+            minZoom={0.15}
+            maxZoom={2}
+            colorMode="dark"
+            deleteKeyCode={["Backspace", "Delete", "x", "X"]}
+            panOnDrag={[1, 2]}
           proOptions={{ hideAttribution: true }}
         >
           <Background
@@ -249,7 +249,7 @@ const ReactFlowCanvasInner = () => {
           <Panel position="bottom-left">
             <div className="rounded border border-[#2a2a2a] bg-[#1a1a1a]/80 px-2 py-1">
               <span className="font-mono text-[9px] text-zinc-700">
-                F&nbsp;fit&nbsp;·&nbsp;.&nbsp;focus&nbsp;·&nbsp;play/pause/stop on
+                X&nbsp;delete&nbsp;·&nbsp;F&nbsp;fit&nbsp;·&nbsp;.&nbsp;focus&nbsp;·&nbsp;play/pause/stop on
                 each node
               </span>
             </div>

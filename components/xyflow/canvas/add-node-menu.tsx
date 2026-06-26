@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useRef } from "react"
-import { AlignLeft, Sparkles, Table } from "lucide-react"
+import { AlignLeft, Sparkles, Table, Bot } from "lucide-react"
 
 import type { FlowNodeKind } from "@/lib/flow/canvas-types"
 import { cn } from "@/lib/utils"
@@ -21,6 +21,14 @@ const ADDABLE_NODES: {
     icon: AlignLeft,
     color: "text-sky-600 dark:text-sky-400",
     accent: "hover:bg-sky-50 dark:hover:bg-sky-950/40",
+  },
+  {
+    id: "llm",
+    label: "LLM (Gemini)",
+    description: "Transform text using a prompt and Gemini",
+    icon: Bot,
+    color: "text-violet-600 dark:text-violet-400",
+    accent: "hover:bg-violet-50 dark:hover:bg-violet-950/40",
   },
   {
     id: "discover-factory",
@@ -43,11 +51,18 @@ const ADDABLE_NODES: {
 type AddNodeMenuProps = {
   x: number
   y: number
+  allowedKinds?: FlowNodeKind[]
   onSelect: (kind: FlowNodeKind) => void
   onClose: () => void
 }
 
-export const AddNodeMenu = ({ x, y, onSelect, onClose }: AddNodeMenuProps) => {
+export const AddNodeMenu = ({
+  x,
+  y,
+  allowedKinds,
+  onSelect,
+  onClose,
+}: AddNodeMenuProps) => {
   const ref = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -63,8 +78,12 @@ export const AddNodeMenu = ({ x, y, onSelect, onClose }: AddNodeMenuProps) => {
     }
   }, [onClose])
 
+  const visibleNodes = allowedKinds
+    ? ADDABLE_NODES.filter((node) => allowedKinds.includes(node.id))
+    : ADDABLE_NODES
+
   const menuWidth = 260
-  const menuHeight = 220
+  const menuHeight = Math.min(220, 52 + visibleNodes.length * 52)
   const cursorOffset = 12
   const left = Math.min(
     x + cursorOffset,
@@ -83,12 +102,14 @@ export const AddNodeMenu = ({ x, y, onSelect, onClose }: AddNodeMenuProps) => {
     >
       <div className="flex items-center justify-between border-b border-border px-3 py-2">
         <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-          Add Node
+          {allowedKinds ? "Add & Connect" : "Add Node"}
         </span>
-        <span className="font-mono text-[9px] text-muted-foreground/70">Shift+A</span>
+        <span className="font-mono text-[9px] text-muted-foreground/70">
+          {allowedKinds ? "release wire" : "Shift+A"}
+        </span>
       </div>
       <div className="py-1">
-        {ADDABLE_NODES.map((type) => {
+        {visibleNodes.map((type) => {
           const Icon = type.icon
           return (
             <button
