@@ -127,3 +127,21 @@
     @apply font-sans;
     }
 }
+
+/* React Flow — Blender-style dark canvas */
+.react-flow {
+  background-color: var(--color-zinc-950) !important;
+}
+
+.react-flow__edge-path {
+  stroke: #71717a;
+  stroke-width: 1.5;
+}
+
+.react-flow__edge.animated path {
+  stroke: #a1a1aa;
+}
+
+.react-flow__controls-button:hover {
+  background: #27272a !important;
+}

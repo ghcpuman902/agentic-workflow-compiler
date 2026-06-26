@@ -1,0 +1,27 @@
+---
+description: Proactively verify UI changes using the cursor-ide-browser MCP tool
+alwaysApply: true
+---
+
+# Self-Verifying Workflow
+
+When making frontend changes or debugging UI issues, you must proactively verify the results yourself using the `cursor-ide-browser` MCP instead of waiting for the user to provide feedback or screenshots.
+
+## How to Verify
+
+1. The user's app typically runs locally (e.g., `http://localhost:3121/`).
+2. Use the `CallMcpTool` tool with `server: "cursor-ide-browser"` to check the state of the page.
+3. Steps to verify:
+   - Call `browser_navigate` to ensure the browser is on the correct page.
+   - Call `browser_snapshot` to get an accessible, text-based overview of the DOM layout, elements, and text content.
+   - Call `browser_take_screenshot` to capture visual feedback (the image will be automatically attached to your context).
+   - If you need detailed DOM structures or computed CSS, use `browser_cdp` (e.g., `Runtime.evaluate` to inspect specific elements).
+
+## Benefits
+
+- You can immediately catch rendering errors, layout overflow, or missing data.
+- It saves back-and-forth turns by allowing you to fix issues before the user even reports them.
+- If the Dev Server crashes (e.g., connection refused), you can notify the user immediately and investigate the crash rather than assuming the UI is fine.
+
+## Important Note
+Do NOT restart the dev server on your own unless explicitly requested by the user, as dictated by the workspace rules. If your verification shows a connection error, inform the user that their server is down.

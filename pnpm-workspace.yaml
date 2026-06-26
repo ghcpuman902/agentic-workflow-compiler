@@ -1,0 +1,17 @@
+packages:
+  - .
+
+allowBuilds:
+  agent-browser: true
+  esbuild: true
+  sharp: true
+  unrs-resolver: true
+
+minimumReleaseAgeExclude:
+  - shadcn@4.11.1
+  - '@ai-sdk/gateway@4.0.2'
+  - '@ai-sdk/openai@4.0.0'
+  - '@ai-sdk/google@4.0.0'
+  - '@ai-sdk/provider-utils@5.0.0'
+  - '@ai-sdk/provider@4.0.0'
+  - ai@7.0.2
