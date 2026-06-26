@@ -9,7 +9,7 @@ export default async function DiscoverTestPage() {
   return (
     <TestLabShell
       title="Discover → Build"
-      description="Paste up to five URLs, run Stage 1 structural discovery, pick Document or Collection, and preview the compiled output."
+      description="Paste URLs (one per line), run fast quick discover, pick output type, build & test, then run slow workflow discovery on the queue — all without leaving this page."
       currentPath="/test/discover"
     >
       <ReadmePanel content={readme} />

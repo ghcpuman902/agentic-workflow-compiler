@@ -12,6 +12,8 @@ import {
   type PipelineConfig,
 } from "@/lib/workflow/pipeline-config"
 
+import { resolveDiscoveryInputIntent } from "@/lib/workflow/discovery-intent"
+
 import { aggregate } from "./aggregate"
 import { quickRead } from "./agent-browser"
 import { inspectUrl } from "./inspect"
@@ -35,6 +37,9 @@ export type QuickDiscoveryResult = DiscoveryResult & {
   topConfidence: number
   confidenceThreshold: number
   maxProbeUrls: number
+  /** collection = multiple URLs pasted; ambiguous = single URL (document or collection). */
+  inputIntent: "collection" | "ambiguous"
+  totalInputUrls: number
 }
 
 export async function quickDiscoverUrls(
@@ -82,7 +87,9 @@ export async function quickDiscoverUrls(
       })
     }
 
-    const { roleGroups, suggestions } = aggregate(pages)
+    const { roleGroups, suggestions } = aggregate(pages, {
+      totalInputUrls: normalized.length,
+    })
     topConfidence = suggestions[0]?.confidence ?? 0
     confidenceMet = topConfidence >= config.confidenceThreshold
 
@@ -110,12 +117,15 @@ export async function quickDiscoverUrls(
         topConfidence,
         confidenceMet,
         config,
+        totalInputUrls: normalized.length,
       })
       return result
     }
   }
 
-  const { roleGroups, suggestions } = aggregate(pages)
+  const { roleGroups, suggestions } = aggregate(pages, {
+    totalInputUrls: normalized.length,
+  })
   topConfidence = suggestions[0]?.confidence ?? 0
 
   return finalizeQuickDiscovery({
@@ -128,6 +138,7 @@ export async function quickDiscoverUrls(
     topConfidence,
     confidenceMet: topConfidence >= config.confidenceThreshold,
     config,
+    totalInputUrls: normalized.length,
   })
 }
 
@@ -141,6 +152,7 @@ async function finalizeQuickDiscovery(input: {
   topConfidence: number
   confidenceMet: boolean
   config: PipelineConfig
+  totalInputUrls: number
 }): Promise<QuickDiscoveryResult> {
   const result: QuickDiscoveryResult = {
     runId: input.runId,
@@ -154,6 +166,8 @@ async function finalizeQuickDiscovery(input: {
     topConfidence: input.topConfidence,
     confidenceThreshold: input.config.confidenceThreshold,
     maxProbeUrls: input.config.maxProbeUrls,
+    inputIntent: resolveDiscoveryInputIntent(input.totalInputUrls),
+    totalInputUrls: input.totalInputUrls,
   }
 
   await cacheSet("output", `discovery:${input.runId}`, result)

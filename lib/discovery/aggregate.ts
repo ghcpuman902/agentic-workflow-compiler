@@ -20,6 +20,11 @@ import type {
   UrlRoleGroup,
 } from "@/lib/workflow/content-types"
 
+export type AggregateOptions = {
+  /** Total URLs the user pasted (may exceed probed pages during quick discover). */
+  totalInputUrls?: number
+}
+
 export type AggregateResult = {
   roleGroups: UrlRoleGroup[]
   suggestions: Suggestion[]
@@ -158,14 +163,39 @@ function buildDocumentSuggestion(pages: PageInspection[]): Suggestion | null {
   }
 }
 
-export function aggregate(pages: PageInspection[]): AggregateResult {
+export function aggregate(
+  pages: PageInspection[],
+  options?: AggregateOptions,
+): AggregateResult {
   const roleGroups = groupByRole(pages)
+  const totalInputUrls = options?.totalInputUrls ?? pages.length
+  const multiUrlIntent = totalInputUrls > 1
 
   const suggestions: Suggestion[] = []
   const collection = buildCollectionSuggestion(pages)
   if (collection) suggestions.push(collection)
   const document = buildDocumentSuggestion(pages)
   if (document) suggestions.push(document)
+
+  // Multiple pasted URLs imply array/collection output — bias ranking toward Collection.
+  if (multiUrlIntent) {
+    for (const suggestion of suggestions) {
+      if (suggestion.family === "collection") {
+        suggestion.confidence = Number(Math.min(1, suggestion.confidence + 0.12).toFixed(3))
+      } else if (suggestion.family === "document") {
+        suggestion.confidence = Number(Math.max(0.15, suggestion.confidence - 0.1).toFixed(3))
+      }
+    }
+    if (!collection && pages.length > 0) {
+      suggestions.push({
+        family: "collection",
+        label: `${totalInputUrls} URLs pasted — treat as a collection (array output)`,
+        confidence: 0.45,
+        estimatedRecords: totalInputUrls,
+        entity: "record",
+      })
+    }
+  }
 
   // Always offer Document as a low-confidence fallback so the user is never stuck.
   if (suggestions.length === 0 && pages.length > 0) {

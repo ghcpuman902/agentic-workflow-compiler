@@ -7,6 +7,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type ReactNode,
 } from "react"
 
@@ -26,6 +27,7 @@ import type {
   Suggestion,
 } from "@/lib/workflow/content-types"
 import { parseUrlLines, SAMPLE_CANNES_URLS } from "@/lib/workflow/sample-urls"
+import { resolveDiscoverySelection } from "@/lib/workflow/discovery-intent"
 
 type NodeControl = {
   runState: NodeRunState
@@ -51,6 +53,26 @@ type WorkflowPipelineContextValue = PipelineState & {
 
 const WorkflowPipelineContext =
   createContext<WorkflowPipelineContextValue | null>(null)
+
+type NodeStateStore = {
+  subscribe: (nodeId: string, listener: () => void) => () => void
+  getRunState: (nodeId: string) => NodeRunState
+}
+
+const NodeStateStoreContext = createContext<NodeStateStore | null>(null)
+
+export const useNodeRunState = (nodeId: string): NodeRunState => {
+  const store = useContext(NodeStateStoreContext)
+  if (!store) {
+    throw new Error("useNodeRunState must be used within WorkflowPipelineProvider")
+  }
+
+  return useSyncExternalStore(
+    (listener) => store.subscribe(nodeId, listener),
+    () => store.getRunState(nodeId),
+    () => store.getRunState(nodeId),
+  )
+}
 
 export const useWorkflowPipeline = () => {
   const ctx = useContext(WorkflowPipelineContext)
@@ -98,12 +120,40 @@ export const WorkflowPipelineProvider = ({
 
   const abortRef = useRef<AbortController | null>(null)
   const pausedRef = useRef(false)
+  const nodeStatesRef = useRef(nodeStates)
+  nodeStatesRef.current = nodeStates
+  const nodeListenersRef = useRef(new Map<string, Set<() => void>>())
+
+  const emitNodeState = useCallback((nodeId: string) => {
+    nodeListenersRef.current.get(nodeId)?.forEach((listener) => listener())
+  }, [])
+
+  const nodeStateStore = useMemo<NodeStateStore>(
+    () => ({
+      subscribe: (nodeId, listener) => {
+        const listeners =
+          nodeListenersRef.current.get(nodeId) ?? new Set<() => void>()
+        listeners.add(listener)
+        nodeListenersRef.current.set(nodeId, listeners)
+        return () => listeners.delete(listener)
+      },
+      getRunState: (nodeId) => nodeStatesRef.current[nodeId] ?? "idle",
+    }),
+    [],
+  )
 
   const allUrls = useMemo(() => parseUrlLines(urlText), [urlText])
 
-  const setNodeState = useCallback((nodeId: string, state: NodeRunState) => {
-    setNodeStates((current) => ({ ...current, [nodeId]: state }))
-  }, [])
+  const setNodeState = useCallback(
+    (nodeId: string, state: NodeRunState) => {
+      const prev = nodeStatesRef.current[nodeId] ?? "idle"
+      if (prev === state) return
+      nodeStatesRef.current = { ...nodeStatesRef.current, [nodeId]: state }
+      setNodeStates(nodeStatesRef.current)
+      emitNodeState(nodeId)
+    },
+    [emitNodeState],
+  )
 
   const setUrlText = useCallback((text: string) => {
     setUrlTextState(text)
@@ -114,8 +164,16 @@ export const WorkflowPipelineProvider = ({
     setBuildConfirmed(false)
     setArtifact(null)
     setError(null)
+
+    const prevStates = nodeStatesRef.current
+    nodeStatesRef.current = INITIAL_NODE_STATES
     setNodeStates(INITIAL_NODE_STATES)
-  }, [])
+    Object.keys(INITIAL_NODE_STATES).forEach((nodeId) => {
+      if ((prevStates[nodeId] ?? "idle") !== INITIAL_NODE_STATES[nodeId]) {
+        emitNodeState(nodeId)
+      }
+    })
+  }, [emitNodeState])
 
   const stopActive = useCallback(() => {
     abortRef.current?.abort()
@@ -169,14 +227,12 @@ export const WorkflowPipelineProvider = ({
       setProbedUrls(result?.probedUrls ?? [])
       setPendingUrls(result?.pendingUrls ?? [])
 
-      const first =
-        result?.suggestions.find((s) => s.family === selectedFamily) ??
-        result?.suggestions[0] ??
-        null
-      setSelectedSuggestion(first)
-      if (first?.family === "document" || first?.family === "collection") {
-        setSelectedFamily(first.family)
-      }
+      const selection = resolveDiscoverySelection(
+        allUrls.length,
+        result?.suggestions ?? [],
+      )
+      setSelectedFamily(selection.family)
+      setSelectedSuggestion(selection.suggestion)
 
       setNodeState("quick-discover", "completed")
       setNodeState("output-select", "idle")
@@ -193,7 +249,6 @@ export const WorkflowPipelineProvider = ({
   }, [
     allUrls,
     confidenceThreshold,
-    selectedFamily,
     setNodeState,
     stopActive,
   ])
@@ -386,29 +441,29 @@ export const WorkflowPipelineProvider = ({
 
   const pauseNode = useCallback(
     (nodeId: string) => {
-      const state = nodeStates[nodeId]
+      const state = nodeStatesRef.current[nodeId]
       if (state !== "running") return
       pausedRef.current = true
       abortRef.current?.abort()
       setNodeState(nodeId, "paused")
     },
-    [nodeStates, setNodeState],
+    [setNodeState],
   )
 
   const stopNode = useCallback(
     (nodeId: string) => {
-      const state = nodeStates[nodeId]
+      const state = nodeStatesRef.current[nodeId]
       if (state !== "running" && state !== "paused") return
       pausedRef.current = false
       abortRef.current?.abort()
       setNodeState(nodeId, "stopped")
     },
-    [nodeStates, setNodeState],
+    [setNodeState],
   )
 
   const getNodeControl = useCallback(
     (nodeId: string, kind: PipelineNodeKind): NodeControl => {
-      const runState = nodeStates[nodeId] ?? "idle"
+      const runState = nodeStatesRef.current[nodeId] ?? "idle"
 
       const canPlay = (() => {
         switch (kind) {
@@ -454,7 +509,6 @@ export const WorkflowPipelineProvider = ({
       artifact,
       buildConfirmed,
       discovery,
-      nodeStates,
       outputConfirmed,
       pauseNode,
       pendingUrls.length,
@@ -513,8 +567,10 @@ export const WorkflowPipelineProvider = ({
   )
 
   return (
-    <WorkflowPipelineContext.Provider value={value}>
-      {children}
-    </WorkflowPipelineContext.Provider>
+    <NodeStateStoreContext.Provider value={nodeStateStore}>
+      <WorkflowPipelineContext.Provider value={value}>
+        {children}
+      </WorkflowPipelineContext.Provider>
+    </NodeStateStoreContext.Provider>
   )
 }

@@ -1,7 +1,8 @@
 "use client"
 
-import { Circle, Workflow } from "lucide-react"
+import { Circle } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { AppBrand } from "@/components/brand/app-brand"
 import { SponsorStrip } from "@/components/sponsors"
 import {
   SidebarContent,
@@ -15,54 +16,40 @@ import {
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
 
-const outlinerItems = [
-  { id: "url-input", label: "URL Input", status: "idle" as const },
-  { id: "quick-discover", label: "Quick Discover", status: "idle" as const },
-  { id: "output-select", label: "Output Select", status: "idle" as const },
-  { id: "confirm-build", label: "Confirm Build", status: "idle" as const },
-  { id: "generate-test", label: "Generate & Test", status: "idle" as const },
-  { id: "url-queue", label: "URL Queue", status: "idle" as const },
+const paletteItems = [
+  { id: "url", label: "Text", hint: "Shift+A" },
+  { id: "discover-factory", label: "Discover factory", hint: "Shift+A" },
+  { id: "spider", label: "Spider", hint: "Spawned by discover" },
+  { id: "preview", label: "Preview", hint: "Shift+A" },
 ]
-
-const statusColor = {
-  idle: "text-zinc-600",
-  loading: "text-amber-500",
-  success: "text-emerald-500",
-  error: "text-red-500",
-}
 
 export const OutlinerPanel = () => {
   return (
     <>
-      <SidebarHeader className="border-b border-zinc-800">
-        <div className="flex items-center gap-2 px-1">
-          <Workflow className="size-4 text-zinc-500" aria-hidden />
-          <span className="text-sm font-semibold text-zinc-200">Outliner</span>
-        </div>
+      <SidebarHeader className="h-10 shrink-0 justify-center border-b border-sidebar-border px-3 py-0 group-data-[collapsible=icon]:items-center group-data-[collapsible=icon]:px-0">
+        <AppBrand />
       </SidebarHeader>
 
       <SidebarContent>
-        <SidebarGroup>
+        <SidebarGroup className="group-data-[collapsible=icon]:hidden">
           <SidebarGroupLabel>Collection</SidebarGroupLabel>
           <div className="px-2 pb-2">
-            <p className="truncate text-sm text-zinc-300">compile_flow_v0.1</p>
+            <p className="truncate text-sm text-sidebar-foreground">
+              compile_flow_v0.1
+            </p>
           </div>
         </SidebarGroup>
 
         <SidebarGroup>
-          <SidebarGroupLabel>Workflow Objects</SidebarGroupLabel>
+          <SidebarGroupLabel>Node palette</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {outlinerItems.map((item) => (
+              {paletteItems.map((item) => (
                 <SidebarMenuItem key={item.id}>
-                  <SidebarMenuButton
-                    tooltip={item.label}
-                    className="hover:bg-zinc-900 hover:text-zinc-200"
-                  >
+                  <SidebarMenuButton tooltip={`${item.label} — ${item.hint}`}>
                     <Circle
                       className={cn(
-                        "size-2 shrink-0 fill-current",
-                        statusColor[item.status],
+                        "size-2 shrink-0 fill-current text-muted-foreground",
                       )}
                       aria-hidden
                     />
@@ -75,9 +62,9 @@ export const OutlinerPanel = () => {
         </SidebarGroup>
       </SidebarContent>
 
-      <SidebarFooter className="border-t border-zinc-800">
-        <p className="truncate px-1 text-xs text-zinc-500">
-          Agentic at build time · deterministic at run time
+      <SidebarFooter className="border-t border-sidebar-border">
+        <p className="truncate px-1 text-xs text-muted-foreground group-data-[collapsible=icon]:hidden">
+          Discover factory spawns spiders · drag out to wire preview
         </p>
         <SponsorStrip variant="sidebar" />
       </SidebarFooter>

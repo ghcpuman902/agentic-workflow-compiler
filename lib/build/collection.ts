@@ -14,7 +14,8 @@
  */
 import { promises as fs } from "fs"
 import path from "path"
-import { generateJson, generateCode } from "@/lib/integrations/llm"
+import { generateJson } from "@/lib/integrations/llm"
+import { createCodeGen } from "@/lib/build/cursor-agent"
 import { runInProcess } from "@/lib/build/execute"
 import { cacheGet, cacheSet } from "@/lib/cache/fs-cache"
 import { traceEvent } from "@/lib/trace/trace"
@@ -68,6 +69,8 @@ export type BuildCollectionParams = {
   discovery: DiscoveryResult
   entity?: string
   format: CollectionFormat
+  /** Optional free-text hint from the discover node, fed to the build agent. */
+  extraContext?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -196,14 +199,21 @@ function schemaSummary(schema: InferredSchema): string {
     .join("\n")
 }
 
-function extractorPrompt(schema: InferredSchema, sampleInput: ExtractorInput): string {
+function extractorPrompt(
+  schema: InferredSchema,
+  sampleInput: ExtractorInput,
+  extraContext?: string,
+): string {
   const content = truncate(sampleInput.html || sampleInput.markdown)
   const source = sampleInput.html ? "HTML" : "Markdown"
+  const contextLine = extraContext?.trim()
+    ? `\nUser context (prioritise these fields/goals when extracting):\n${extraContext.trim()}\n`
+    : ""
   return `Write a PLAIN JavaScript (ES2020) extractor. Output ONLY code, no explanation, no markdown fences.
 
 Define exactly one function:
   function run(input) { ... }
-
+${contextLine}
 - input is an object: { html?: string, markdown?: string }
 - run MUST return an array of record objects matching this schema for entity "${schema.entity}":
 ${schemaSummary(schema)}
@@ -219,17 +229,6 @@ Sample ${source} input the extractor will receive (truncated):
 """
 ${content}
 """`
-}
-
-async function generateExtractor(
-  runId: string,
-  schema: InferredSchema,
-  sampleInput: ExtractorInput
-): Promise<string> {
-  return generateCode(extractorPrompt(schema, sampleInput), {
-    runId,
-    purpose: "generate-extractor",
-  })
 }
 
 // ---------------------------------------------------------------------------
@@ -486,7 +485,7 @@ function preview(serialized: string): string {
 export async function buildCollection(
   params: BuildCollectionParams
 ): Promise<BuildArtifact> {
-  const { runId, discovery, entity, format } = params
+  const { runId, discovery, entity, format, extraContext } = params
   let buildModelCalls = 0
   let repairCount = 0
 
@@ -511,28 +510,40 @@ export async function buildCollection(
   const schema = await inferSchema(runId, suggestion, samplePage, sampleInput)
   buildModelCalls++
 
-  // c. Generate extractor (model-call build).
-  let source = await generateExtractor(runId, schema, sampleInput)
-  buildModelCalls++
-
-  // d. Test across pages.
-  let report = await testTool(source, pages, buildInputs, schema, suggestion, {
-    runId,
-    phase: "build",
-  })
-
-  // e. Repair loop (each patch is a model-call build).
-  while (!report.passed && repairCount < MAX_REPAIRS) {
-    source = await generateCode(repairPrompt(source, schema, report), {
-      runId,
-      purpose: `repair-extractor-${repairCount + 1}`,
-    })
+  // The build loop is agentic: a Cursor agent (or Gemini fallback) writes the
+  // extractor, then patches it via follow-up sends until the golden tests pass.
+  const codegen = await createCodeGen(runId)
+  let source: string
+  let report: TestReport
+  try {
+    // c. Generate extractor (model-call build).
+    source = await codegen.send(
+      extractorPrompt(schema, sampleInput, extraContext),
+      "generate-extractor",
+    )
     buildModelCalls++
-    repairCount++
+
+    // d. Test across the golden pages.
     report = await testTool(source, pages, buildInputs, schema, suggestion, {
       runId,
       phase: "build",
     })
+
+    // e. Repair loop (each patch is a model-call build).
+    while (!report.passed && repairCount < MAX_REPAIRS) {
+      source = await codegen.send(
+        repairPrompt(source, schema, report),
+        `repair-extractor-${repairCount + 1}`,
+      )
+      buildModelCalls++
+      repairCount++
+      report = await testTool(source, pages, buildInputs, schema, suggestion, {
+        runId,
+        phase: "build",
+      })
+    }
+  } finally {
+    await codegen.dispose()
   }
 
   // Freeze the compiled tool.
@@ -586,5 +597,6 @@ export async function buildCollection(
     repairCount,
     testsPassed: report.passedCount,
     testsTotal: report.total,
+    agent: codegen.agent,
   }
 }

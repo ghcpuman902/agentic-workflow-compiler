@@ -24,6 +24,7 @@ import {
   DOC_FORMATS,
 } from "@/lib/workflow/content-types";
 import { FAMILY_LABELS } from "@/lib/workflow/pipeline-types";
+import { resolveDiscoverySelection } from "@/lib/workflow/discovery-intent";
 import { parseUrlLines, SAMPLE_CANNES_URLS } from "@/lib/workflow/sample-urls";
 
 type DiscoverResponse = {
@@ -110,14 +111,12 @@ export function DiscoverTestPanel() {
       setPendingUrls(payload.result?.pendingUrls ?? []);
       setTraceSummary(payload.traceSummary ?? null);
 
-      const first =
-        payload.result?.suggestions.find((s) => s.family === selectedFamily) ??
-        payload.result?.suggestions[0] ??
-        null;
-      setSelectedSuggestion(first);
-      if (first?.family === "document" || first?.family === "collection") {
-        setSelectedFamily(first.family);
-      }
+      const selection = resolveDiscoverySelection(
+        allUrls.length,
+        payload.result?.suggestions ?? [],
+      );
+      setSelectedFamily(selection.family);
+      setSelectedSuggestion(selection.suggestion);
     } catch (err) {
       setInspectData(undefined);
       setDiscovery(null);
@@ -229,9 +228,13 @@ export function DiscoverTestPanel() {
             />
           </label>
           <p className="text-xs text-muted-foreground">
-            {allUrls.length} URLs total · quick discover probes 1 URL at a time
-            (up to {MAX_PROBE_URLS}) until confidence ≥{" "}
-            {(confidenceThreshold * 100).toFixed(0)}%
+            {allUrls.length} URLs total ·{" "}
+            {allUrls.length > 1
+              ? "multiple URLs → assume Collection (array output)"
+              : "single URL → Document or Collection — you choose after quick discover"}
+            . Quick discover probes 1 URL at a time (up to {MAX_PROBE_URLS}) until
+            confidence ≥ {(confidenceThreshold * 100).toFixed(0)}%; remaining URLs
+            stay queued for slow workflow discovery after build.
           </p>
           <Button
             onClick={handleQuickDiscover}
@@ -253,6 +256,19 @@ export function DiscoverTestPanel() {
         <>
           <section className="space-y-4 rounded-xl border bg-card p-4">
             <h2 className="font-medium">Quick discover summary</h2>
+            {discovery.inputIntent === "ambiguous" ? (
+              <p className="text-sm text-muted-foreground">
+                Single URL pasted — could be a document or a collection page. Pick
+                a suggestion and output type below.
+              </p>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                {discovery.totalInputUrls} URLs pasted — treating input as a
+                Collection (array output). Quick discover probed{" "}
+                {discovery.probedUrls.length} URL(s); the rest wait in the queue
+                for workflow discovery.
+              </p>
+            )}
             <dl className="grid gap-2 text-sm sm:grid-cols-2">
               <div>
                 <dt className="text-muted-foreground">Probed</dt>
@@ -520,8 +536,11 @@ export function DiscoverTestPanel() {
             onClick={handleProcessQueue}
             disabled={queueLoading || !buildConfirmed}
           >
-            Process queued URLs
+            Run workflow discovery on queue
           </Button>
+          <p className="text-xs text-muted-foreground">
+            Slow full inspect on remaining URLs — stays on this page.
+          </p>
           <ApiResultPanel
             title="Queue discover response"
             loading={queueLoading}

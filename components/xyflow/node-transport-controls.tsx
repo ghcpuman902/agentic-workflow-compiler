@@ -1,6 +1,6 @@
 "use client"
 
-import { PauseIcon, PlayIcon, SquareIcon } from "lucide-react"
+import { Pause, Play, Square } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import type { NodeRunState } from "@/lib/workflow/pipeline-types"
@@ -13,16 +13,8 @@ type NodeTransportControlsProps = {
   canPlay?: boolean
   canPause?: boolean
   canStop?: boolean
+  accentClassName?: string
   className?: string
-}
-
-const runStateLabel: Record<NodeRunState, string> = {
-  idle: "Idle",
-  running: "Running",
-  paused: "Paused",
-  completed: "Done",
-  error: "Error",
-  stopped: "Stopped",
 }
 
 export const NodeTransportControls = ({
@@ -33,6 +25,7 @@ export const NodeTransportControls = ({
   canPlay = true,
   canPause = runState === "running",
   canStop = runState === "running" || runState === "paused",
+  accentClassName = "text-muted-foreground hover:bg-muted",
   className,
 }: NodeTransportControlsProps) => {
   return (
@@ -41,33 +34,37 @@ export const NodeTransportControls = ({
       onClick={(event) => event.stopPropagation()}
       onKeyDown={(event) => event.stopPropagation()}
     >
-      <span className="sr-only">{runStateLabel[runState]}</span>
-      <button
-        type="button"
-        aria-label="Play node"
-        title="Play"
-        disabled={!canPlay || runState === "running"}
-        onClick={onPlay}
-        className={cn(
-          "inline-flex size-5 items-center justify-center rounded text-zinc-300 transition-colors",
-          "hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40",
-        )}
-      >
-        <PlayIcon className="size-3 fill-current" />
-      </button>
-      <button
-        type="button"
-        aria-label="Pause node"
-        title="Pause"
-        disabled={!canPause}
-        onClick={onPause}
-        className={cn(
-          "inline-flex size-5 items-center justify-center rounded text-zinc-300 transition-colors",
-          "hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40",
-        )}
-      >
-        <PauseIcon className="size-3 fill-current" />
-      </button>
+      {runState === "running" ? (
+        <button
+          type="button"
+          aria-label="Pause node"
+          title="Pause"
+          disabled={!canPause}
+          onClick={onPause}
+          className={cn(
+            "rounded p-0.5 transition-colors disabled:cursor-not-allowed disabled:opacity-40",
+            accentClassName,
+          )}
+        >
+          <Pause className="size-3" />
+        </button>
+      ) : (
+        <button
+          type="button"
+          aria-label="Play node"
+          title={runState === "completed" ? "Re-run" : "Run"}
+          disabled={!canPlay}
+          onClick={onPlay}
+          className={cn(
+            "rounded p-0.5 transition-colors disabled:cursor-not-allowed disabled:opacity-40",
+            runState === "completed"
+              ? "text-emerald-400 hover:bg-emerald-900/30"
+              : accentClassName,
+          )}
+        >
+          <Play className="size-3" />
+        </button>
+      )}
       <button
         type="button"
         aria-label="Stop node"
@@ -75,11 +72,11 @@ export const NodeTransportControls = ({
         disabled={!canStop}
         onClick={onStop}
         className={cn(
-          "inline-flex size-5 items-center justify-center rounded text-zinc-300 transition-colors",
-          "hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40",
+          "rounded p-0.5 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive",
+          "disabled:cursor-not-allowed disabled:opacity-40",
         )}
       >
-        <SquareIcon className="size-3 fill-current" />
+        <Square className="size-3" />
       </button>
     </div>
   )

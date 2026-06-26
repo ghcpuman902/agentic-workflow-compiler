@@ -12,6 +12,21 @@ The user should not need to type a goal. They only resolve ambiguity by choosing
 
 ---
 
+## Discover node UX
+
+The Discover node is a single play button that runs the whole build pipeline. Before pressing
+play the user only sees:
+
+- **Extra context** — an optional free-text textarea passed to discovery and to the build
+  agent (e.g. "I care about speaker names and ticket prices"). Never required.
+- **Advanced settings** (collapsible, at the bottom): **Confidence threshold** (default `0.55`)
+  and **Max discover pages** (default `5`). These are out of the way so the default flow is
+  just *paste URLs → press play*.
+
+Pressing play runs **discover → build → test → repair → freeze** and emits a tested spider
+(see "Agentic build loop" below). The discover node never asks the user to pick array vs
+single or md vs json — that is resolved on the spider afterwards.
+
 ## Stage 1: Structural Discovery (Browser Agent)
 
 The user pastes one URL or multiple URLs, one per line:
@@ -97,21 +112,47 @@ This gives transparency without asking the user to design the workflow.
 
 ---
 
-## Output Families
+## Output model: singular item type × cardinality (Blender-style)
 
-Keep the primary choice simple. Four families; two active for the MVP.
+We do **not** make the user declare "array output" or "markdown output" on the discover
+node. Following the Blender node model, a node carries a single **item type** (the datatype
+of *one* output item) and the **cardinality** (single vs array) is *derived from the input*:
 
-| Family | Status | Formats | Powered by |
-|--------|--------|---------|-----------|
-| **Document** | Active | Markdown · JSON | Tavily Extract (Stage 2) |
-| **Collection** | Active | JSONL · CSV · TypeScript array | Generated browser extraction workflow |
-| **Media** | Coming soon (greyed) | images · files · galleries · video/audio refs | - |
-| **Browser session** | Coming soon (greyed) | authenticated session · interactive state · agent hand-off | - |
+- **list of URLs in → array out**
+- **single URL in → single out**
 
-- **Document** - coherent long-form content.
-- **Collection** - repeated structured records. This is where the workflow-compiler thesis is strongest.
+List-ness therefore only affects the **discover stage** (whether discovery needs to detect
+repeated record boundaries across pages). It is never something the node itself pins.
 
-The user selects one output family and, where relevant, one discovered entity type and final format.
+```ts
+type ItemType   = "markdown" | "html" | "json" | "csv-row"   // datatype of ONE item
+type Cardinality = "single" | "array"                         // = urlCount > 1 ? "array" : "single"
+```
+
+The build **family** and concrete **format** are *derived* from `(itemType, cardinality)`,
+not chosen directly:
+
+| itemType | cardinality | build family | format |
+|----------|-------------|--------------|--------|
+| `markdown` | any | Document | `md` |
+| `html` | any | Document | `md` (approximated until a real HTML writer exists) |
+| `json` | `single` | Document | `json` |
+| `json` | `array` | Collection | `jsonl` |
+| `csv-row` | any | Collection | `csv` |
+
+**Default selection, overridable.** When the user pastes multiple URLs (`array`), the spider
+defaults its item type to a record-shaped type (`json`/`csv-row`); a single URL defaults to
+`markdown`. The user can always override the item type on the spider — the cardinality badge
+stays read-only because it is a property of the input, not a choice.
+
+Two families remain greyed for the MVP:
+
+| Family | Status | Powered by |
+|--------|--------|-----------|
+| **Document** | Active | Tavily Extract (Stage 2) |
+| **Collection** | Active | Cursor-agent-generated extractor, vm-sandboxed |
+| **Media** | Coming soon (greyed) | - |
+| **Browser session** | Coming soon (greyed) | - |
 
 ---
 
@@ -148,7 +189,38 @@ Selected URLs
   -> JSONL, CSV or TypeScript array
 ```
 
-The generated TypeScript extractor is produced inline via Gemini (AI SDK), executed in-process (vm + timeout), and repaired on test failure. Once tests pass, the tool is frozen and run deterministically across all supplied URLs (no LLM in the run phase).
+The generated extractor is produced by an **agent** (not a single Gemini round-trip),
+executed in-process (vm + timeout), and repaired on test failure. Once tests pass, the tool is
+frozen and run deterministically across all supplied URLs (no LLM in the run phase).
+
+### Agentic build loop (golden passes)
+
+The discover node's play button triggers the loop:
+
+1. **Golden passes** — the orchestrator derives expected assertions from the already-probed
+   (cached) pages: expected record count (`estimatedRecords`) and the required fields (shared
+   fields with coverage ≥ 0.5 from `aggregate()`). These probed pages are the golden set.
+2. **Builder agent** — a [Cursor agent](https://cursor.com/docs/sdk/typescript) (`@cursor/sdk`,
+   `Agent.create` + `agent.send`, local runtime, model `composer-2.5`) writes a modular
+   `run(input)` extractor. Extra context from the discover node is included in the prompt.
+3. **Tester** — the extractor runs in the vm+timeout sandbox against the golden pages.
+4. **Repair** — on failure, a follow-up `agent.send` keeps full conversation context and
+   patches the extractor; loop until golden passes (bounded retries).
+5. **Freeze** — the passing extractor is cached as a `CompiledTool`.
+
+If `CURSOR_API_KEY` is not configured (or the local agent is unreachable), the loop falls back
+to the Gemini `generateCode` path so the demo never hard-fails.
+
+### Run phase (deterministic)
+
+The **spider node** has its own play button. It runs the frozen extractor across **all** pasted
+URLs (capped by the spider's **max input** setting) with **zero** model calls. Every spider
+exposes a `maxInputUrls` cap so a 500-URL paste can be limited to, say, 25 for a demo.
+
+SDK guardrails applied on the server path: dispose the agent in `finally`
+(`agent[Symbol.asyncDispose]()`), distinguish thrown `CursorAgentError` (run never started:
+auth/config) from `result.status === "error"` (ran but failed), always `await run.wait()`, pass
+`apiKey` explicitly, and set `local.settingSources: []` so ambient settings are not loaded.
 
 ---
 
@@ -233,7 +305,7 @@ Do **not** build automatic media extraction or transferable browser sessions yet
 | Stage 1 browser | **agent-browser** (Vercel Labs CLI), shelled out from Node, headless, run locally |
 | Quick-check | `agent-browser read <url> --json` - HTTP fetch, no Chrome, parallel per URL |
 | Deep inspect | `agent-browser open` + `wait` + `snapshot -i` + `eval` (per-URL `--session`) |
-| Stage 2 codegen | AI SDK + Gemini inline (`generateText`/`generateObject`) |
+| Stage 2 codegen | **Cursor agent** (`@cursor/sdk`, local, `composer-2.5`); Gemini `generateCode` fallback |
 | Tool execution | In-process Node (dynamic import / `vm`) + timeout |
 | Caching | Local filesystem, hash-keyed; scrape/inspect once |
 | Tracing | ClickHouse (build vs run events); local JSONL fallback |

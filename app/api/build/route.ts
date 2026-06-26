@@ -32,6 +32,8 @@ export async function POST(request: Request) {
     const family = body.family as OutputFamily;
     const entity =
       typeof body.entity === "string" ? body.entity.trim() : undefined;
+    const extraContext =
+      typeof body.extraContext === "string" ? body.extraContext : undefined;
 
     if (!runId) {
       return NextResponse.json({ error: "runId is required" }, { status: 400 });
@@ -80,6 +82,7 @@ export async function POST(request: Request) {
         discovery,
         entity,
         format,
+        extraContext,
       });
     }
 

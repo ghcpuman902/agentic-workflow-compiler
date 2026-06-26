@@ -22,6 +22,61 @@ export const DOC_FORMATS: DocFormat[] = ["md", "json"]
 export const COLLECTION_FORMATS: CollectionFormat[] = ["jsonl", "csv", "ts"]
 
 // ---------------------------------------------------------------------------
+// Item type × cardinality (Blender-style output model)
+//
+// A node carries a single ITEM TYPE (the datatype of one output item). Whether
+// the output is single or an array (CARDINALITY) is DERIVED from the input URL
+// count, never declared on the node. The build family + concrete format are in
+// turn derived from (itemType, cardinality). See docs/06-two-stage-pipeline.md.
+// ---------------------------------------------------------------------------
+
+export type ItemType = "markdown" | "html" | "json" | "csv-row"
+export type Cardinality = "single" | "array"
+
+export const ITEM_TYPES: ItemType[] = ["markdown", "html", "json", "csv-row"]
+
+export const ITEM_TYPE_LABELS: Record<ItemType, string> = {
+  markdown: "Markdown",
+  html: "HTML",
+  json: "JSON",
+  "csv-row": "CSV row",
+}
+
+/** Cardinality is a property of the input: many URLs ⇒ array, one URL ⇒ single. */
+export const cardinalityForUrlCount = (urlCount: number): Cardinality =>
+  urlCount > 1 ? "array" : "single"
+
+/** A record-shaped item type implies the Collection build path. */
+export const isRecordItemType = (itemType: ItemType): boolean =>
+  itemType === "csv-row" || itemType === "json"
+
+export type ResolvedOutput = {
+  family: "document" | "collection"
+  format: OutputFormat
+}
+
+/**
+ * Derive the build family + concrete format from the singular item type and the
+ * input-derived cardinality. csv-row and arrayed json are record collections;
+ * everything else is a single document.
+ */
+export const resolveOutput = (
+  itemType: ItemType,
+  cardinality: Cardinality,
+): ResolvedOutput => {
+  if (itemType === "csv-row") return { family: "collection", format: "csv" }
+  if (itemType === "json" && cardinality === "array")
+    return { family: "collection", format: "jsonl" }
+  if (itemType === "json") return { family: "document", format: "json" }
+  // markdown + html (html approximated as markdown until a real HTML writer exists)
+  return { family: "document", format: "md" }
+}
+
+/** Default item type to pre-select on the spider given the input cardinality. */
+export const defaultItemType = (cardinality: Cardinality): ItemType =>
+  cardinality === "array" ? "json" : "markdown"
+
+// ---------------------------------------------------------------------------
 // Stage 1: structural discovery
 // ---------------------------------------------------------------------------
 
@@ -135,4 +190,6 @@ export type BuildArtifact = {
   repairCount: number
   testsPassed: number
   testsTotal: number
+  /** Which agent generated the extractor (Collection path only). */
+  agent?: "cursor" | "gemini"
 }
