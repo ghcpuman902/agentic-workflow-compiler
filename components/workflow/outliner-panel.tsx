@@ -17,7 +17,7 @@ import {
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
-import { getCachedRawPages, getChatSessions } from "@/app/actions/sidebar"
+import { getCachedRawPages, getChatSessions, type ChatSessionsResult } from "@/app/actions/sidebar"
 
 const paletteItems = [
   { id: "url", label: "Text", hint: "Shift+A" },
@@ -30,7 +30,7 @@ const paletteItems = [
 export const OutlinerPanel = () => {
   const [activeTab, setActiveTab] = React.useState("build")
   const [cachedPages, setCachedPages] = React.useState<{filename: string}[]>([])
-  const [chatData, setChatData] = React.useState<{configured: boolean, sessions: {session_id: string, title: string, created_at: string}[], error?: string} | null>(null)
+  const [chatData, setChatData] = React.useState<ChatSessionsResult | null>(null)
 
   React.useEffect(() => {
     if (activeTab === "data") {
@@ -115,28 +115,34 @@ export const OutlinerPanel = () => {
 
           <TabsContent value="chat" className="flex-1 overflow-y-auto m-0 p-0 group-data-[collapsible=icon]:hidden">
             <SidebarGroup>
-              <SidebarGroupLabel>ClickHouse Chat</SidebarGroupLabel>
+              <SidebarGroupLabel>Chat History</SidebarGroupLabel>
               <SidebarGroupContent>
                 <div className="px-3 py-2 text-xs flex flex-col gap-2">
                   {!chatData ? (
                     <p className="text-muted-foreground">Loading sessions...</p>
-                  ) : !chatData.configured ? (
-                    <p className="text-muted-foreground text-red-400">ClickHouse not configured.</p>
-                  ) : chatData.error ? (
-                    <p className="text-muted-foreground text-yellow-500 truncate" title={chatData.error}>
-                      No sessions yet or error: {chatData.error}
-                    </p>
                   ) : chatData.sessions.length === 0 ? (
-                    <p className="text-muted-foreground">No chat history.</p>
+                    <p className="text-muted-foreground">No chat history yet.</p>
                   ) : (
-                    chatData.sessions.map((session, idx) => (
-                      <div key={idx} className="rounded border border-border px-2 py-1.5 bg-muted/50 flex flex-col gap-1">
+                    chatData.sessions.map((session) => (
+                      <div key={session.session_id} className="rounded border border-border px-2 py-1.5 bg-muted/50 flex flex-col gap-1">
                         <span className="font-semibold text-foreground truncate">{session.title || "Untitled Session"}</span>
                         <span className="text-[10px] text-muted-foreground">{session.created_at}</span>
                       </div>
                     ))
                   )}
-                  <button 
+
+                  {chatData && (
+                    <p className="text-[10px] text-muted-foreground">
+                      Persisted locally
+                      {chatData.configured
+                        ? chatData.error
+                          ? " · ClickHouse unavailable (mirror)"
+                          : " · mirrored to ClickHouse"
+                        : " · ClickHouse not configured"}
+                    </p>
+                  )}
+
+                  <button
                     onClick={async () => {
                       const res = await fetch("/api/chat/demo", { method: "POST" })
                       if (res.ok) {

@@ -1,6 +1,15 @@
 import { getClickHouseClient, isClickHouseConfigured } from "@/lib/integrations/clickhouse";
+import {
+  saveLocalSession,
+  saveLocalMessages,
+  type ChatMessage,
+  type ChatSession,
+} from "@/lib/chat/local-chat-store";
 
 let tablesEnsured = false;
+
+const chTimestamp = (date: Date): string =>
+  date.toISOString().replace("T", " ").replace("Z", "");
 
 export async function ensureChatTables(): Promise<void> {
   if (tablesEnsured || !isClickHouseConfigured()) return;
@@ -39,49 +48,67 @@ export async function ensureChatTables(): Promise<void> {
   tablesEnsured = true;
 }
 
-export async function insertDemoSession() {
+/** Best-effort mirror to ClickHouse; never throws (local store is source of truth). */
+async function mirrorToClickHouse(
+  session: ChatSession,
+  messages: ChatMessage[],
+): Promise<void> {
   if (!isClickHouseConfigured()) return;
-  await ensureChatTables();
+  try {
+    await ensureChatTables();
+    const client = getClickHouseClient();
+    await client.insert({
+      table: "chat_sessions",
+      values: [session],
+      format: "JSONEachRow",
+    });
+    await client.insert({
+      table: "chat_messages",
+      values: messages,
+      format: "JSONEachRow",
+    });
+  } catch (error) {
+    console.error("ClickHouse chat mirror failed (local store kept):", error);
+  }
+}
 
-  const client = getClickHouseClient();
+export async function insertDemoSession(): Promise<string> {
+  const now = chTimestamp(new Date());
   const sessionId = "demo-" + Date.now();
-  
-  await client.insert({
-    table: "chat_sessions",
-    values: [
-      {
-        session_id: sessionId,
-        title: "Demo Chat Session",
-        status: "active",
-        created_at: new Date().toISOString().replace("T", " ").replace("Z", ""),
-        updated_at: new Date().toISOString().replace("T", " ").replace("Z", ""),
-      }
-    ],
-    format: "JSONEachRow"
-  });
 
-  await client.insert({
-    table: "chat_messages",
-    values: [
-      {
-        message_id: "msg1",
-        session_id: sessionId,
-        role: "user",
-        content: "Hello, what can you do?",
-        metadata: "{}",
-        created_at: new Date().toISOString().replace("T", " ").replace("Z", ""),
-      },
-      {
-        message_id: "msg2",
-        session_id: sessionId,
-        role: "assistant",
-        content: "I am a simple demo chat bot using ClickHouse!",
-        metadata: "{}",
-        created_at: new Date().toISOString().replace("T", " ").replace("Z", ""),
-      }
-    ],
-    format: "JSONEachRow"
-  });
+  const session: ChatSession = {
+    session_id: sessionId,
+    title: "Demo Chat Session",
+    status: "active",
+    created_at: now,
+    updated_at: now,
+  };
+
+  const messages: ChatMessage[] = [
+    {
+      message_id: `${sessionId}-1`,
+      session_id: sessionId,
+      role: "user",
+      content: "Hello, what can you do?",
+      metadata: "{}",
+      created_at: now,
+    },
+    {
+      message_id: `${sessionId}-2`,
+      session_id: sessionId,
+      role: "assistant",
+      content: "I am a simple demo chat bot. History is persisted locally and mirrored to ClickHouse.",
+      metadata: "{}",
+      created_at: now,
+    },
+  ];
+
+  // Local disk is the durable source of truth (survives hot reloads/restarts).
+  await saveLocalSession(session);
+  await saveLocalMessages(messages);
+
+  // ClickHouse is a best-effort cloud mirror.
+  await mirrorToClickHouse(session, messages);
 
   return sessionId;
 }
