@@ -16,7 +16,7 @@ export type ActivityStep = {
   status: ActivityStepStatus
 }
 
-export type DiscoverPhase = "idle" | "running" | "done" | "error"
+export type DiscoverPhase = "idle" | "running" | "building" | "done" | "error"
 
 export type UrlNodeData = {
   kind: "url"

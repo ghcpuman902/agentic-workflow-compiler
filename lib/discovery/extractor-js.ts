@@ -23,9 +23,44 @@ export const EXTRACTOR_JS = `(() => {
     } catch {}
   });
 
+  // Skip site chrome: nav/header/footer/aside menus are repeated DOM groups too,
+  // but they are boilerplate, not the page's core records.
+  const BOILERPLATE_TAGS = new Set(["NAV", "HEADER", "FOOTER", "ASIDE"]);
+  const BOILERPLATE_ROLES = /^(navigation|banner|contentinfo|search|menu|menubar|tablist)$/i;
+  const isBoilerplate = (el) => {
+    let cur = el;
+    while (cur && cur !== document.body) {
+      if (BOILERPLATE_TAGS.has(cur.tagName)) return true;
+      const role = cur.getAttribute && cur.getAttribute("role");
+      if (role && BOILERPLATE_ROLES.test(role)) return true;
+      cur = cur.parentElement;
+    }
+    return false;
+  };
+
+  // A group is "nav-like" when its items are mostly bare links with short text
+  // and no real content (heading / time / image / paragraph) — i.e. menu items,
+  // breadcrumbs or tag clouds rather than article/product/event records.
+  const isNavLike = (nodes) => {
+    let linkish = 0;
+    for (const node of nodes) {
+      const hasHeading = node.querySelector("h1,h2,h3,h4,h5,h6");
+      const hasMedia = node.querySelector("img,time");
+      const hasParagraph = node.querySelector("p");
+      const anchor =
+        node.tagName === "A" ? node : node.querySelector("a[href]");
+      const text = (node.textContent || "").replace(/\\s+/g, " ").trim();
+      if (anchor && !hasHeading && !hasMedia && !hasParagraph && text.length <= 40) {
+        linkish++;
+      }
+    }
+    return nodes.length > 0 && linkish / nodes.length >= 0.8;
+  };
+
   const groups = [];
   const groupKeys = new Set();
   for (const parent of document.querySelectorAll("body *")) {
+    if (isBoilerplate(parent)) continue;
     const children = [...parent.children];
     if (children.length < 3) continue;
     const byTag = new Map();
@@ -40,6 +75,7 @@ export const EXTRACTOR_JS = `(() => {
     }
     for (const [sig, nodes] of byTag.entries()) {
       if (nodes.length < 3) continue;
+      if (isNavLike(nodes)) continue;
       const key = parent.tagName + ">" + sig + ":" + nodes.length;
       if (groupKeys.has(key)) continue;
       groupKeys.add(key);

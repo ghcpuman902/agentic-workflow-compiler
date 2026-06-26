@@ -8,6 +8,7 @@ export const buildDiscoverSteps = (urlCount: number): ActivityStep[] => {
     { id: "inspect", label: "Inspecting DOM structure", status: "pending" },
     { id: "score", label: "Scoring extraction candidates", status: "pending" },
     { id: "spider", label: "Generating spider node", status: "pending" },
+    { id: "build", label: "Building & testing extractor", status: "pending" },
   ]
 }
 
@@ -47,12 +48,29 @@ export const setRunningStep = (
   })
 }
 
+/**
+ * Stage 1 finished: complete every discovery step (and stamp the spider detail),
+ * then hand off to the agentic build by leaving the "build" step "running".
+ */
 export const completeAllSteps = (
   steps: ActivityStep[],
   spiderDetail: string,
 ): ActivityStep[] =>
+  steps.map((step) => {
+    if (step.id === "build") {
+      return { ...step, status: "running", detail: undefined }
+    }
+    if (step.id === "spider") {
+      return { ...step, status: "complete", detail: spiderDetail }
+    }
+    return { ...step, status: "complete", detail: undefined }
+  })
+
+/** Stage 2 finished: resolve the "build" step to complete (or error). */
+export const finishBuildStep = (
+  steps: ActivityStep[],
+  patch: Partial<ActivityStep>,
+): ActivityStep[] =>
   steps.map((step) =>
-    step.id === "spider"
-      ? { ...step, status: "complete", detail: spiderDetail }
-      : { ...step, status: "complete", detail: undefined },
+    step.id === "build" ? { ...step, ...patch } : step,
   )

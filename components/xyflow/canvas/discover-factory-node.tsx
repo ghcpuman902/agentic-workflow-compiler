@@ -44,7 +44,13 @@ import {
 } from "@/lib/workflow/pipeline-config"
 import type { DiscoverFactoryData } from "@/lib/flow/canvas-types"
 
-const ElapsedLabel = ({ startedAt }: { startedAt?: number }) => {
+const ElapsedLabel = ({
+  startedAt,
+  building,
+}: {
+  startedAt?: number
+  building?: boolean
+}) => {
   const [elapsed, setElapsed] = useState(0)
 
   useEffect(() => {
@@ -60,7 +66,7 @@ const ElapsedLabel = ({ startedAt }: { startedAt?: number }) => {
 
   return (
     <span className="font-mono text-[9px] text-violet-500">
-      {elapsed}s · probing live URLs…
+      {elapsed}s · {building ? "agent building & testing extractor…" : "probing live URLs…"}
     </span>
   )
 }
@@ -72,8 +78,12 @@ export const DiscoverFactoryNode = memo(function DiscoverFactoryNode({
 }: NodeProps & { data: DiscoverFactoryData }) {
   const { updateNodeData, runDiscoverFactory } = useCompileFlow()
   const isRunning = data.phase === "running"
+  const isBuilding = data.phase === "building"
   const isDone = data.phase === "done"
-  const settingsDisabled = data.settingsLocked || isRunning || isDone
+  // "Busy" covers both Stage 1 discovery and Stage 2 build — the factory should
+  // look like it's still working until the embedded spider is built & tested.
+  const isBusy = isRunning || isBuilding
+  const settingsDisabled = data.settingsLocked || isBusy || isDone
   const [thresholdDraft, setThresholdDraft] = useState(
     String(data.confidenceThreshold),
   )
@@ -84,15 +94,15 @@ export const DiscoverFactoryNode = memo(function DiscoverFactoryNode({
   const [advancedOpen, setAdvancedOpen] = useState(false)
 
   useEffect(() => {
-    if (!isRunning) {
+    if (!isBusy) {
       setThresholdDraft(String(data.confidenceThreshold))
       setMaxPagesDraft(String(data.maxDiscoverPages))
       setContextDraft(data.extraContext)
     }
-  }, [data.confidenceThreshold, data.maxDiscoverPages, data.extraContext, isRunning])
+  }, [data.confidenceThreshold, data.maxDiscoverPages, data.extraContext, isBusy])
 
   const handlePlay = () => {
-    if (isRunning) return
+    if (isBusy) return
     runDiscoverFactory(id)
   }
 
@@ -147,7 +157,7 @@ export const DiscoverFactoryNode = memo(function DiscoverFactoryNode({
           borderDefault: flowBorderVioletDefault,
           borderSelected: flowBorderVioletSelected,
         }),
-        isRunning && flowBorderVioletRunning,
+        isBusy && flowBorderVioletRunning,
         isDone && flowBorderVioletDone,
       )}
       style={{ width: "100%", height: "100%", minHeight: 240 }}
@@ -165,12 +175,12 @@ export const DiscoverFactoryNode = memo(function DiscoverFactoryNode({
         <Sparkles className={flowHeaderVioletIcon} aria-hidden />
         <span className={flowHeaderVioletTitle}>Discover</span>
         <span className={flowHeaderVioletMeta}>factory</span>
-        {isRunning ? (
+        {isBusy ? (
           <Loader2 className="size-3 animate-spin text-violet-600 dark:text-violet-400" aria-hidden />
         ) : null}
 
         <div className="ml-auto flex items-center gap-0.5">
-          {isRunning ? (
+          {isBusy ? (
             <button
               type="button"
               className={flowHeaderVioletControl}
@@ -183,7 +193,7 @@ export const DiscoverFactoryNode = memo(function DiscoverFactoryNode({
             <button
               type="button"
               onClick={handlePlay}
-              disabled={isRunning}
+              disabled={isBusy}
               className={cn(
                 "rounded p-0.5 transition-colors disabled:opacity-40",
                 isDone
@@ -295,9 +305,11 @@ export const DiscoverFactoryNode = memo(function DiscoverFactoryNode({
           </div>
         ) : null}
 
-        {isRunning ? <ElapsedLabel startedAt={data.startedAt} /> : null}
+        {isBusy ? (
+          <ElapsedLabel startedAt={data.startedAt} building={isBuilding} />
+        ) : null}
 
-        {(isRunning || isDone || data.phase === "error") &&
+        {(isBusy || isDone || data.phase === "error") &&
         data.activitySteps.length > 0 ? (
           <AgentActivityLog steps={data.activitySteps} className="mt-2" />
         ) : null}

@@ -50,6 +50,7 @@ import {
 import {
   buildDiscoverSteps,
   completeAllSteps,
+  finishBuildStep,
   setRunningStep,
 } from "@/lib/flow/discover-activity"
 import {
@@ -296,14 +297,41 @@ const CompileFlowCanvasInner = () => {
             agent: artifact.agent ?? "gemini",
           },
         }))
+
+        updateNodeData(factoryId, (data) => {
+          const d = data as DiscoverFactoryData
+          if (d.phase !== "building") return d
+          return {
+            ...d,
+            phase: "done",
+            activitySteps: finishBuildStep(d.activitySteps, {
+              status: "complete",
+              detail: `${artifact.testsPassed}/${artifact.testsTotal} golden tests passed`,
+            }),
+          }
+        })
       } catch (error) {
+        const message = error instanceof Error ? error.message : "Build failed"
         patchSpider(factoryId, spiderId, () => ({
           buildStatus: "failed",
-          buildError: error instanceof Error ? error.message : "Build failed",
+          buildError: message,
         }))
+
+        updateNodeData(factoryId, (data) => {
+          const d = data as DiscoverFactoryData
+          if (d.phase !== "building") return d
+          return {
+            ...d,
+            phase: "done",
+            activitySteps: finishBuildStep(d.activitySteps, {
+              status: "error",
+              detail: message,
+            }),
+          }
+        })
       }
     },
-    [patchSpider],
+    [patchSpider, updateNodeData],
   )
 
   const runSpider = useCallback(
@@ -418,7 +446,7 @@ const CompileFlowCanvasInner = () => {
             },
             data: {
               ...data,
-              phase: "done",
+              phase: "building",
               spiderNodeId: spiderId,
               embeddedSpider: spiderPayload,
               discovery,

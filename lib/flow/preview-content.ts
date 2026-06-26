@@ -63,6 +63,11 @@ const looksLikeHtml = (value: string) =>
 const looksLikeCsv = (value: string) => {
   const lines = value.trim().split("\n").filter(Boolean)
   if (lines.length < 2) return false
+  // JSON / JSONL is not CSV: objects and arrays start with { or [. Without this
+  // guard, JSONL records (consistent comma counts) get fed to the CSV parser,
+  // which then fails on the inner quotes ("Trailing quote ... is malformed").
+  const firstChar = lines[0].trimStart()[0]
+  if (firstChar === "{" || firstChar === "[") return false
   const delimiter = lines[0].includes("\t")
     ? "\t"
     : lines[0].includes(";")
@@ -415,11 +420,11 @@ export const extractHttpUrls = (text: string) =>
   parseUrlLines(text).filter((line) => HTTP_URL.test(line))
 
 export const applyPreviewMode = (
-  mode: PreviewMode,
+  mode: PreviewMode | undefined,
   autoContent: PreviewContent,
   rawText: string,
 ): PreviewContent => {
-  if (mode === "auto") return autoContent
+  if (!mode || mode === "auto") return autoContent
 
   const trimmed = rawText.trim()
   const urls = extractHttpUrls(rawText)

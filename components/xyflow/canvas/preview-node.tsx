@@ -33,7 +33,7 @@ import {
   flowResizerHandle,
 } from "@/lib/flow/node-chrome"
 import { cn } from "@/lib/utils"
-import type { PreviewNodeData, SpiderNodeData, UrlNodeData } from "@/lib/flow/canvas-types"
+import type { PreviewNodeData, SpiderNodeData, UrlNodeData, FlowNodeData } from "@/lib/flow/canvas-types"
 import {
   applyPreviewMode,
   getActivePreviewSlice,
@@ -84,14 +84,11 @@ export const PreviewNode = memo(function PreviewNode({
   })
 
   const sourceId = connections[0]?.source ?? null
-  const sourceType = useStore((state) => {
-    if (!sourceId) return null
-    return state.nodeLookup.get(sourceId)?.type ?? null
-  })
-  const sourceData = useStore((state) => {
-    if (!sourceId) return null
-    return state.nodeLookup.get(sourceId)?.data ?? null
-  })
+  const sourceNode = useStore((state) =>
+    sourceId ? state.nodes.find((node) => node.id === sourceId) : undefined,
+  )
+  const sourceType = sourceNode?.type ?? null
+  const mode = data.mode ?? "auto"
 
   const prevSourceId = useRef<string | null>(null)
 
@@ -106,24 +103,28 @@ export const PreviewNode = memo(function PreviewNode({
     }
   }, [id, sourceId, updateNodeData])
 
-  const rawText = useMemo(
-    () => getSourceRawText(sourceType, sourceData),
-    [sourceData, sourceType],
-  )
+  const rawText = useMemo(() => {
+    const fromStore = getSourceRawText(sourceType, sourceNode?.data)
+    if (fromStore.trim()) return fromStore
+    if (!sourceId) return ""
+    return getSourceRawText(sourceType, getNodeData(sourceId))
+  }, [getNodeData, sourceId, sourceNode?.data, sourceType])
 
   const autoContent = useMemo(() => {
-    const nodeData = sourceId ? getNodeData(sourceId) : null
+    const nodeData =
+      (sourceNode?.data as FlowNodeData | undefined) ??
+      (sourceId ? getNodeData(sourceId) : null)
     return resolvePreviewContent(sourceType, nodeData)
-  }, [getNodeData, sourceData, sourceId, sourceType])
+  }, [getNodeData, sourceId, sourceNode?.data, sourceType])
 
   const tavilyPreview = useTavilyPreview({
-    mode: data.mode,
+    mode,
     rawText,
-    enabled: Boolean(sourceId && isTavilyPreviewMode(data.mode)),
+    enabled: Boolean(sourceId && isTavilyPreviewMode(mode)),
   })
 
   const previewContent = useMemo(() => {
-    if (isTavilyPreviewMode(data.mode)) {
+    if (isTavilyPreviewMode(mode)) {
       if (tavilyPreview.content) return tavilyPreview.content
       if (tavilyPreview.error) {
         return {
@@ -139,8 +140,8 @@ export const PreviewNode = memo(function PreviewNode({
         },
       }
     }
-    return applyPreviewMode(data.mode, autoContent, rawText)
-  }, [autoContent, data.mode, rawText, tavilyPreview.content, tavilyPreview.error, tavilyPreview.loading])
+    return applyPreviewMode(mode, autoContent, rawText)
+  }, [autoContent, mode, rawText, tavilyPreview.content, tavilyPreview.error, tavilyPreview.loading])
 
   const hasPager = previewHasPager(previewContent)
   const itemCount = previewContent.items?.length ?? 0
@@ -150,8 +151,7 @@ export const PreviewNode = memo(function PreviewNode({
   )
   const activeSlice = getActivePreviewSlice(previewContent, itemIndex)
   const modeLabel =
-    PREVIEW_MODE_OPTIONS.find((option) => option.id === data.mode)?.label ??
-    "Auto"
+    PREVIEW_MODE_OPTIONS.find((option) => option.id === mode)?.label ?? "Auto"
 
   const handlePrevious = () => {
     updateNodeData(id, (current) => ({
@@ -194,7 +194,7 @@ export const PreviewNode = memo(function PreviewNode({
         <Eye className={flowHeaderEmeraldIcon} aria-hidden />
         <span className={flowHeaderEmeraldTitle}>Preview</span>
 
-        <Select value={data.mode} onValueChange={handleModeChange}>
+        <Select value={mode} onValueChange={handleModeChange}>
           <SelectTrigger
             size="sm"
             className="nodrag nowheel h-6 min-w-[6.5rem] border-input bg-background px-2 font-mono text-[9px] text-foreground"

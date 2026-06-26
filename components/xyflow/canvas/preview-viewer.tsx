@@ -4,6 +4,7 @@ import dynamic from "next/dynamic"
 import { memo } from "react"
 import { useTheme } from "next-themes"
 
+import { MiniBrowserFrame } from "@/components/xyflow/canvas/mini-browser-frame"
 import type { PreviewSlice } from "@/lib/flow/preview-content"
 import { flowNodeBody, flowNodeDivider } from "@/lib/flow/node-chrome"
 import { cn } from "@/lib/utils"
@@ -162,20 +163,7 @@ export const PreviewViewer = memo(function PreviewViewer({
         ) : null}
 
         {slice.kind === "minibrowser" && slice.browserUrl ? (
-          <div className="flex h-full flex-col">
-            <div className={cn("flex shrink-0 items-center gap-2 px-2 py-1", flowNodeDivider, "border-b")}>
-              <span className="truncate font-mono text-[9px] text-muted-foreground">
-                {slice.browserUrl}
-              </span>
-            </div>
-            <iframe
-              title={slice.title ?? "Mini browser"}
-              src={slice.browserUrl}
-              sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
-              className="min-h-0 flex-1 border-0 bg-white"
-              referrerPolicy="no-referrer"
-            />
-          </div>
+          <MiniBrowserFrame url={slice.browserUrl} title={slice.title} />
         ) : null}
 
         {slice.kind === "tavily-document" ? (
