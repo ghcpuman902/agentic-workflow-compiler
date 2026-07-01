@@ -1,7 +1,8 @@
 "use server"
 
-import { generateText, generateObject } from "ai"
+import { generateText } from "ai"
 import { google } from "@ai-sdk/google"
+import { DEFAULT_GEMINI_MODEL } from "@/lib/integrations/llm"
 
 export type RunLlmParams = {
   prompt: string
@@ -20,7 +21,7 @@ Your task is to process the user's input text according to the following instruc
 ${prompt}`
 
   try {
-    const model = google('gemini-1.5-pro')
+    const model = google(DEFAULT_GEMINI_MODEL)
 
     if (outputMethod === "json") {
       const { text } = await generateText({

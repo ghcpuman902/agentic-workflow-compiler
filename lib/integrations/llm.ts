@@ -6,7 +6,9 @@ import { generateText } from "ai";
 import { google } from "@ai-sdk/google";
 import { traceEvent } from "@/lib/trace/trace";
 
-const MODEL = "gemini-2.5-flash";
+export const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash";
+
+const MODEL = DEFAULT_GEMINI_MODEL;
 
 function requireApiKey(): void {
   const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY;

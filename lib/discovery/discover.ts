@@ -10,7 +10,6 @@ import crypto from "crypto"
 import { cacheSet } from "@/lib/cache/fs-cache"
 import { traceEvent } from "@/lib/trace/trace"
 import type { DiscoveryResult, PageInspection } from "@/lib/workflow/content-types"
-import { quickRead } from "./agent-browser"
 import { aggregate } from "./aggregate"
 import { inspectUrl } from "./inspect"
 
@@ -41,10 +40,6 @@ export async function discoverUrls(
     kind: "discover-start",
     payload: { urlCount: targets.length, urls: targets },
   })
-
-  // Quick-check in parallel for the instant doc/collection hint + outline preview.
-  // Fire-and-forget for hints; failures here never block deep inspection.
-  await Promise.allSettled(targets.map((url) => quickRead(url)))
 
   // Deep inspect in parallel (each call is cached + isolated by per-URL session).
   const settled = await Promise.allSettled(targets.map((url) => inspectUrl(url, runId)))

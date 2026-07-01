@@ -33,7 +33,8 @@ import {
   flowResizerHandle,
 } from "@/lib/flow/node-chrome"
 import { cn } from "@/lib/utils"
-import type { PreviewNodeData, SpiderNodeData, UrlNodeData, FlowNodeData } from "@/lib/flow/canvas-types"
+import type { PreviewNodeData, FlowNodeData } from "@/lib/flow/canvas-types"
+import { resolveNodeOutputText } from "@/lib/flow/node-output-text"
 import {
   applyPreviewMode,
   getActivePreviewSlice,
@@ -46,35 +47,12 @@ import {
   type PreviewMode,
 } from "@/lib/flow/preview-modes"
 
-const getSourceRawText = (
-  sourceType: string | null,
-  data: unknown,
-): string => {
-  if (sourceType === "url" && data && typeof data === "object" && "url" in data) {
-    return String((data as UrlNodeData).url ?? "")
-  }
-
-  if (sourceType === "spider" && data && typeof data === "object") {
-    const spider = data as SpiderNodeData
-    const pageUrls = spider.discovery?.pages.map((page) => page.url) ?? []
-    if (pageUrls.length > 0) return pageUrls.join("\n")
-    if (spider.run?.preview) return spider.run.preview
-    if (spider.build?.preview) return spider.build.preview
-  }
-
-  if (sourceType === "llm" && data && typeof data === "object" && "preview" in data) {
-    return String((data as any).preview ?? "")
-  }
-
-  return ""
-}
-
 export const PreviewNode = memo(function PreviewNode({
   id,
   data,
   selected,
 }: NodeProps & { data: PreviewNodeData }) {
-  const { updateNodeData, getNodeData } = useCompileFlow()
+  const { updateNodeData, getNodeData, getNodeType } = useCompileFlow()
   const connections = useNodeConnections({
     id,
     handleType: "target",
@@ -88,6 +66,7 @@ export const PreviewNode = memo(function PreviewNode({
   })
 
   const sourceId = connections[0]?.source ?? null
+  const sourceHandle = connections[0]?.sourceHandle ?? null
   const sourceNode = useStore((state) =>
     sourceId ? state.nodes.find((node) => node.id === sourceId) : undefined,
   )
@@ -108,18 +87,27 @@ export const PreviewNode = memo(function PreviewNode({
   }, [id, sourceId, updateNodeData])
 
   const rawText = useMemo(() => {
-    const fromStore = getSourceRawText(sourceType, sourceNode?.data)
-    if (fromStore.trim()) return fromStore
     if (!sourceId) return ""
-    return getSourceRawText(sourceType, getNodeData(sourceId))
-  }, [getNodeData, sourceId, sourceNode?.data, sourceType])
+    const sourceTypeResolved = getNodeType(sourceId) ?? sourceType
+    const fromRef = resolveNodeOutputText(
+      sourceTypeResolved,
+      getNodeData(sourceId),
+      sourceHandle,
+    )
+    if (fromRef.trim()) return fromRef
+    return resolveNodeOutputText(
+      sourceType,
+      sourceNode?.data as FlowNodeData | null,
+      sourceHandle,
+    )
+  }, [getNodeData, getNodeType, sourceHandle, sourceId, sourceNode?.data, sourceType])
 
   const autoContent = useMemo(() => {
     const nodeData =
       (sourceNode?.data as FlowNodeData | undefined) ??
       (sourceId ? getNodeData(sourceId) : null)
-    return resolvePreviewContent(sourceType, nodeData)
-  }, [getNodeData, sourceId, sourceNode?.data, sourceType])
+    return resolvePreviewContent(sourceType, nodeData, sourceHandle)
+  }, [getNodeData, sourceHandle, sourceId, sourceNode?.data, sourceType])
 
   const tavilyPreview = useTavilyPreview({
     mode,

@@ -211,3 +211,21 @@
   border-radius: 4px;
   box-shadow: none;
 }
+
+/* Blender-style node sockets */
+.react-flow__handle.flow-blender-socket {
+  min-width: 12px;
+  min-height: 12px;
+  transition:
+    box-shadow 120ms ease,
+    transform 120ms ease;
+}
+
+.react-flow__handle.flow-blender-socket:hover {
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--flow-socket-color, #34d399) 40%, transparent);
+}
+
+.react-flow__handle.flow-blender-socket.connectingto,
+.react-flow__handle.flow-blender-socket.valid {
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--flow-socket-color, #34d399) 55%, transparent);
+}

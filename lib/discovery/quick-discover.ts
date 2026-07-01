@@ -15,7 +15,6 @@ import {
 import { resolveDiscoveryInputIntent } from "@/lib/workflow/discovery-intent"
 
 import { aggregate } from "./aggregate"
-import { quickRead } from "./agent-browser"
 import { inspectUrl } from "./inspect"
 
 function normalizeUrls(urls: string[]): string[] {
@@ -71,8 +70,6 @@ export async function quickDiscoverUrls(
   for (let i = 0; i < probeLimit; i++) {
     const url = normalized[i]
     probedUrls.push(url)
-
-    await Promise.allSettled([quickRead(url)])
 
     try {
       const page = await inspectUrl(url, runId)

@@ -214,14 +214,17 @@ export async function inspectUrl(
         });
       }
 
-      const read = await quickRead(url);
+      const [read, deep] = await Promise.all([
+        quickRead(url),
+        deepInspect(url, EXTRACTOR_JS)
+      ]);
+
       const markdown = read.markdown ?? "";
 
       let evalPayload: Record<string, unknown> = {};
       let snapshot: string | undefined;
       let html = markdown;
 
-      const deep = await deepInspect(url, EXTRACTOR_JS);
       if (!deep.unavailable) {
         evalPayload = parseEvalPayload(deep.evalResult);
         snapshot = deep.snapshot;

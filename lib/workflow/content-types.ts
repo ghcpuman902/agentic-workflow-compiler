@@ -46,6 +46,31 @@ export const ITEM_TYPE_LABELS: Record<ItemType, string> = {
 export const cardinalityForUrlCount = (urlCount: number): Cardinality =>
   urlCount > 1 ? "array" : "single"
 
+/**
+ * Output cardinality has TWO independent array sources, not just URL count:
+ *   - inter-page array: many input URLs, one record per page (e.g. 22 detail pages)
+ *   - intra-page array: a SINGLE listing URL whose page yields many records
+ *                       (e.g. one Devpost search page → 20 hackathon records)
+ *
+ * Deriving cardinality from `urlCount` alone mislabels a single listing page as
+ * "single" even though discovery found a multi-record collection on it. We union
+ * both signals: a single URL is still an array when discovery reports a
+ * collection with more than one estimated record.
+ */
+export const resolveCardinality = (
+  urlCount: number,
+  suggestion?: { family: OutputFamily; estimatedRecords?: number } | null,
+): Cardinality => {
+  if (urlCount > 1) return "array"
+  if (
+    suggestion?.family === "collection" &&
+    (suggestion.estimatedRecords ?? 0) > 1
+  ) {
+    return "array"
+  }
+  return "single"
+}
+
 /** A record-shaped item type implies the Collection build path. */
 export const isRecordItemType = (itemType: ItemType): boolean =>
   itemType === "csv-row" || itemType === "json"

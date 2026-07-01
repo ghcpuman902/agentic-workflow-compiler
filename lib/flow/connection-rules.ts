@@ -1,6 +1,11 @@
 import type { Connection, Node } from "@xyflow/react"
 
 import type { FlowNodeKind } from "@/lib/flow/canvas-types"
+import {
+  COLLECTION_FORMATS,
+  DOC_FORMATS,
+} from "@/lib/workflow/content-types"
+import { spiderOutputHandleId } from "@/lib/workflow/spider-output"
 
 type AllowedEdge = {
   sourceType: string
@@ -8,6 +13,23 @@ type AllowedEdge = {
   targetType: string
   targetHandle: string
 }
+
+const spiderOutputHandles = [
+  "out",
+  ...COLLECTION_FORMATS.map(spiderOutputHandleId),
+  ...DOC_FORMATS.map(spiderOutputHandleId),
+]
+
+const spiderToTarget = (
+  targetType: FlowNodeKind,
+  targetHandle = "in",
+): AllowedEdge[] =>
+  spiderOutputHandles.map((sourceHandle) => ({
+    sourceType: "spider",
+    sourceHandle,
+    targetType,
+    targetHandle,
+  }))
 
 const ALLOWED_EDGES: AllowedEdge[] = [
   {
@@ -34,12 +56,14 @@ const ALLOWED_EDGES: AllowedEdge[] = [
     targetType: "llm",
     targetHandle: "in",
   },
+  ...spiderToTarget("llm"),
   {
-    sourceType: "spider",
+    sourceType: "llm",
     sourceHandle: "out",
-    targetType: "preview",
+    targetType: "llm",
     targetHandle: "in",
   },
+  ...spiderToTarget("preview"),
   {
     sourceType: "llm",
     sourceHandle: "out",

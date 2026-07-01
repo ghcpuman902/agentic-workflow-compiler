@@ -60,16 +60,16 @@ import {
   getConnectableTargetKinds,
   isAllowedConnection,
 } from "@/lib/flow/connection-rules"
-import { resolveDiscoverySelection } from "@/lib/workflow/discovery-intent"
+import { selectionFromSuggestion } from "@/lib/workflow/discovery-intent"
 import { resolveOutput } from "@/lib/workflow/content-types"
+import type { Suggestion } from "@/lib/workflow/content-types"
 import type { DiscoverResponse } from "@/lib/workflow/pipeline-types"
 import { parseUrlLines, SAMPLE_CANNES_URLS } from "@/lib/workflow/sample-urls"
+import { makeCanvasNodeId } from "@/lib/flow/canvas-id"
+import { useCanvasGraphPersistence } from "@/hooks/use-canvas-graph-persistence"
 import { useCanvasViewportPersistence } from "@/hooks/use-canvas-viewport-persistence"
 
 const DEFAULT_MAX_INPUT_URLS = 25
-
-let nodeCounter = 0
-const makeId = (prefix: string) => `${prefix}-${++nodeCounter}`
 
 const edgeStyle = { stroke: "var(--flow-edge-stroke)", strokeWidth: 1.5 }
 const markerEnd = {
@@ -85,7 +85,7 @@ const makeTextNode = (
 ): Node => {
   const { width, height } = NODE_DEFAULT_SIZE.url
   return {
-    id: makeId("text"),
+    id: makeCanvasNodeId("text"),
     type: "url",
     position,
     data: { kind: "url", url: content } satisfies UrlNodeData,
@@ -98,7 +98,7 @@ const makeFlowNode = (
   position: { x: number; y: number },
 ): Node => {
   const { width, height } = NODE_DEFAULT_SIZE[kind]
-  const id = makeId(kind === "discover-factory" ? "discover" : kind)
+  const id = makeCanvasNodeId(kind === "discover-factory" ? "discover" : kind)
 
   switch (kind) {
     case "url":
@@ -155,6 +155,8 @@ const CompileFlowCanvasInner = () => {
     defaultViewport,
     handleViewportChange,
   } = useCanvasViewportPersistence()
+
+  useCanvasGraphPersistence({ nodes, edges, setNodes, setEdges })
   const edgeReconnectSuccessful = useRef(true)
   const isPointerOverCanvas = useRef(false)
   const pointerScreenRef = useRef<{ x: number; y: number } | null>(null)
@@ -268,7 +270,7 @@ const CompileFlowCanvasInner = () => {
       const { family, format } = resolveOutput(
         spider.itemType,
         spider.cardinality,
-        spider.suggestion?.family
+        spider.outputFamily ?? spider.suggestion?.family,
       )
 
       patchSpider(factoryId, spiderId, () => ({
@@ -377,7 +379,7 @@ const CompileFlowCanvasInner = () => {
       const { family, format } = resolveOutput(
         spider.itemType,
         spider.cardinality,
-        spider.suggestion?.family
+        spider.outputFamily ?? spider.suggestion?.family,
       )
 
       patchSpider(spider.factoryId, spiderId, () => ({
@@ -426,30 +428,37 @@ const CompileFlowCanvasInner = () => {
     (
       factoryId: string,
       discovery: QuickDiscoveryResult,
+      suggestion: Suggestion,
       urlSourceId: string | null,
     ) => {
-      const spiderId = makeId("spider")
-      const selection = resolveDiscoverySelection(
+      const spiderId = makeCanvasNodeId("spider")
+      const selection = selectionFromSuggestion(
         discovery.totalInputUrls,
-        discovery.suggestions,
+        suggestion,
       )
-      const suggestion = selection.suggestion ?? discovery.suggestions[0]
       const factory = nodesRef.current.find((node) => node.id === factoryId)
       const extraContext = (factory?.data as DiscoverFactoryData | undefined)
         ?.extraContext
+      const { family: outputFamily, format: outputFormat } = resolveOutput(
+        selection.itemType,
+        selection.cardinality,
+        selection.family,
+      )
 
       const spiderPayload: SpiderNodeData = {
         kind: "spider",
-        label: suggestion?.label.slice(0, 48) ?? "Spider",
+        label: suggestion.label.slice(0, 48) ?? "Spider",
         itemType: selection.itemType,
         cardinality: selection.cardinality,
+        outputFamily,
+        outputFormat,
         maxInputUrls: Math.min(
           DEFAULT_MAX_INPUT_URLS,
           Math.max(1, discovery.totalInputUrls),
         ),
         extraContext: extraContext?.trim() ? extraContext.trim() : undefined,
-        confidence: suggestion?.confidence ?? discovery.topConfidence,
-        entity: suggestion?.entity,
+        confidence: suggestion.confidence ?? discovery.topConfidence,
+        entity: suggestion.entity,
         suggestion,
         discovery,
         runId: discovery.runId,
@@ -473,6 +482,7 @@ const CompileFlowCanvasInner = () => {
             data: {
               ...data,
               phase: "building",
+              pendingDiscovery: null,
               spiderNodeId: spiderId,
               embeddedSpider: spiderPayload,
               discovery,
@@ -486,6 +496,36 @@ const CompileFlowCanvasInner = () => {
       return { spiderId, spider: spiderPayload }
     },
     [setNodes],
+  )
+
+  const confirmDiscoverOutput = useCallback(
+    (factoryId: string) => {
+      const factory = nodesRef.current.find((node) => node.id === factoryId)
+      if (!factory) return
+
+      const factoryData = factory.data as DiscoverFactoryData
+      const discovery = factoryData.pendingDiscovery ?? factoryData.discovery
+      if (!discovery?.suggestions.length) return
+
+      const suggestion =
+        discovery.suggestions[factoryData.selectedSuggestionIndex ?? 0] ??
+        discovery.suggestions[0]
+
+      const urlEdge = edgesRef.current.find(
+        (edge) => edge.target === factoryId && edge.targetHandle === "in",
+      )
+      const urlSourceId = urlEdge?.source ?? null
+
+      const { spiderId, spider } = embedSpiderInFactory(
+        factoryId,
+        discovery,
+        suggestion,
+        urlSourceId,
+      )
+
+      void buildSpider(factoryId, spiderId, spider)
+    },
+    [buildSpider, embedSpiderInFactory],
   )
 
   const materializeSpider = useCallback(
@@ -600,6 +640,8 @@ const CompileFlowCanvasInner = () => {
           spiderNodeId: null,
           embeddedSpider: null,
           discovery: null,
+          pendingDiscovery: null,
+          selectedSuggestionIndex: 0,
           startedAt: Date.now(),
         }
       })
@@ -661,32 +703,22 @@ const CompileFlowCanvasInner = () => {
           `Top confidence ${(result.topConfidence * 100).toFixed(0)}%`,
         )
 
-        const suggestion = resolveDiscoverySelection(
-          urls.length,
-          result.suggestions,
-        ).suggestion
-
         updateNodeData(factoryId, (data) => {
           const d = data as DiscoverFactoryData
           return {
             ...d,
+            phase: "select-output",
+            pendingDiscovery: result,
+            selectedSuggestionIndex: 0,
+            discovery: result,
             activitySteps: completeAllSteps(
               d.activitySteps,
-              suggestion
-                ? `${suggestion.label.slice(0, 40)} · ${(suggestion.confidence * 100).toFixed(0)}%`
-                : "Spider ready",
+              result.suggestions[0]
+                ? `${result.suggestions[0].label.slice(0, 40)} · pick output`
+                : "Pick an output type",
             ),
           }
         })
-
-        const { spiderId, spider } = embedSpiderInFactory(
-          factoryId,
-          result,
-          urlSourceId,
-        )
-
-        // The play button also runs the agentic build loop on the golden pages.
-        void buildSpider(factoryId, spiderId, spider)
       } catch (error) {
         updateNodeData(factoryId, (data) => {
           const d = data as DiscoverFactoryData
@@ -703,7 +735,7 @@ const CompileFlowCanvasInner = () => {
         })
       }
     },
-    [getUpstreamUrls, embedSpiderInFactory, buildSpider, updateNodeData, setNodes],
+    [getUpstreamUrls, updateNodeData, setNodes],
   )
 
   const detachSpider = useCallback(
@@ -1020,6 +1052,7 @@ const CompileFlowCanvasInner = () => {
     () => ({
       updateNodeData,
       runDiscoverFactory,
+      confirmDiscoverOutput,
       runSpider,
       materializeSpider,
       getPreviewSourceId,
@@ -1027,6 +1060,7 @@ const CompileFlowCanvasInner = () => {
       getNodeType,
     }),
     [
+      confirmDiscoverOutput,
       getNodeData,
       getNodeType,
       getPreviewSourceId,

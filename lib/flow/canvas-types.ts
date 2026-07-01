@@ -2,6 +2,7 @@ import type { QuickDiscoveryResult } from "@/lib/discovery/quick-discover"
 import type {
   Cardinality,
   ItemType,
+  OutputFormat,
   Suggestion,
 } from "@/lib/workflow/content-types"
 
@@ -16,7 +17,13 @@ export type ActivityStep = {
   status: ActivityStepStatus
 }
 
-export type DiscoverPhase = "idle" | "running" | "building" | "done" | "error"
+export type DiscoverPhase =
+  | "idle"
+  | "running"
+  | "select-output"
+  | "building"
+  | "done"
+  | "error"
 
 export type UrlNodeData = {
   kind: "url"
@@ -60,10 +67,14 @@ export type SpiderRunResult = {
 
 export type SpiderPayload = {
   label: string
-  /** Singular datatype of one output item (user-overridable). */
+  /** Locked at discover time — datatype of one output item. */
   itemType: ItemType
-  /** Single vs array — derived from the input URL count, read-only in the UI. */
+  /** Single vs array — locked from discovery + URL count. */
   cardinality: Cardinality
+  /** Document vs collection — locked from the discover output choice. */
+  outputFamily?: "document" | "collection"
+  /** Active interchange format (jsonl/csv/ts or md/json); re-serializes instantly. */
+  outputFormat?: OutputFormat
   /** Cap on how many URLs the deterministic run will process. */
   maxInputUrls: number
   /** Optional free-text hint forwarded to the build agent. */
@@ -97,6 +108,10 @@ export type DiscoverFactoryData = {
   phase: DiscoverPhase
   settingsLocked: boolean
   activitySteps: ActivityStep[]
+  /** Discovery result awaiting output choice (select-output phase). */
+  pendingDiscovery?: QuickDiscoveryResult | null
+  /** Index into pendingDiscovery.suggestions — chosen on the discover node. */
+  selectedSuggestionIndex?: number
   /** Pre-assigned id used when the spider is materialized onto the canvas */
   spiderNodeId: string | null
   /** Spider rendered inside the factory until dragged out */
@@ -137,7 +152,7 @@ export const NODE_DEFAULT_SIZE: Record<
 > = {
   url: { width: 240, height: 160 },
   "discover-factory": { width: 380, height: 260 },
-  spider: { width: 260, height: 200 },
+  spider: { width: 300, height: 220 },
   preview: { width: 360, height: 320 },
   llm: { width: 280, height: 240 },
 }

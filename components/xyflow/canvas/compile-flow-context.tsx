@@ -10,6 +10,7 @@ export type CompileFlowActions = {
     updater: (data: FlowNodeData) => FlowNodeData,
   ) => void
   runDiscoverFactory: (factoryId: string) => void
+  confirmDiscoverOutput: (factoryId: string) => void
   runSpider: (spiderId: string) => void
   materializeSpider: (
     factoryId: string,

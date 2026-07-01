@@ -14,7 +14,11 @@ import {
 } from "@/lib/flow/node-chrome"
 import { cn } from "@/lib/utils"
 import type { DiscoverFactoryData } from "@/lib/flow/canvas-types"
-import { ITEM_TYPE_LABELS } from "@/lib/workflow/content-types"
+import {
+  formatLabel,
+  getInterchangeFormats,
+  getSpiderOutputFamily,
+} from "@/lib/workflow/spider-output"
 
 type EmbeddedSpiderCardProps = {
   factoryId: string
@@ -27,8 +31,9 @@ export const EmbeddedSpiderCard = ({
 }: EmbeddedSpiderCardProps) => {
   const { materializeSpider } = useCompileFlow()
   const dragStart = useRef<{ x: number; y: number } | null>(null)
-
   const fields = spider.suggestion?.fields?.slice(0, 3) ?? []
+  const outputFamily = getSpiderOutputFamily(spider)
+  const formats = getInterchangeFormats(outputFamily)
 
   const handlePointerDown = (event: React.PointerEvent) => {
     event.stopPropagation()
@@ -75,14 +80,17 @@ export const EmbeddedSpiderCard = ({
       <div className="space-y-1 p-2">
         <p className="truncate font-mono text-[10px] text-foreground">{spider.label}</p>
         <div className="flex flex-wrap gap-1">
-          <span className="rounded border border-emerald-200 bg-emerald-50 px-1 py-0.5 font-mono text-[8px] text-emerald-700 dark:border-emerald-800/50 dark:bg-emerald-950/50 dark:text-emerald-300">
-            {ITEM_TYPE_LABELS[spider.itemType]}
+          <span className="rounded border border-emerald-200 bg-emerald-50 px-1 py-0.5 font-mono text-[8px] capitalize text-emerald-700 dark:border-emerald-800/50 dark:bg-emerald-950/50 dark:text-emerald-300">
+            {outputFamily}
           </span>
           <span className={flowNodeBadge}>{spider.cardinality}</span>
           <span className="rounded border border-violet-200 bg-violet-50 px-1 py-0.5 font-mono text-[8px] text-violet-700 dark:border-violet-800/50 dark:bg-violet-950/50 dark:text-violet-300">
             {(spider.confidence * 100).toFixed(0)}%
           </span>
         </div>
+        <p className="font-mono text-[8px] text-muted-foreground">
+          Outputs: {formats.map((f) => formatLabel(f)).join(" · ")}
+        </p>
         {spider.build ? (
           <p className="font-mono text-[8px] text-emerald-700 dark:text-emerald-400">
             {spider.build.testsPassed}/{spider.build.testsTotal} tests ·{" "}

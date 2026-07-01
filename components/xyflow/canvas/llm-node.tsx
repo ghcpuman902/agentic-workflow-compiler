@@ -17,7 +17,7 @@ import {
   flowResizerHandle,
   flowNodeIconButton,
 } from "@/lib/flow/node-chrome"
-import type { LlmNodeData } from "@/lib/flow/canvas-types"
+import type { FlowNodeData, LlmNodeData } from "@/lib/flow/canvas-types"
 import {
   Select,
   SelectContent,
@@ -28,39 +28,16 @@ import {
 import { cn } from "@/lib/utils"
 
 import { runGeminiAction } from "@/app/actions/llm"
-import type { FlowNodeData, SpiderNodeData, UrlNodeData } from "@/lib/flow/canvas-types"
+import { resolveNodeOutputText } from "@/lib/flow/node-output-text"
 
 const DEFAULT_H = 240
-
-const getSourceRawText = (
-  sourceType: string | null,
-  data: unknown,
-): string => {
-  if (sourceType === "url" && data && typeof data === "object" && "url" in data) {
-    return String((data as UrlNodeData).url ?? "")
-  }
-
-  if (sourceType === "spider" && data && typeof data === "object") {
-    const spider = data as SpiderNodeData
-    const pageUrls = spider.discovery?.pages.map((page) => page.url) ?? []
-    if (pageUrls.length > 0) return pageUrls.join("\n")
-    if (spider.run?.preview) return spider.run.preview
-    if (spider.build?.preview) return spider.build.preview
-  }
-
-  if (sourceType === "llm" && data && typeof data === "object" && "preview" in data) {
-    return String((data as any).preview ?? "")
-  }
-
-  return ""
-}
 
 export const LlmNode = memo(function LlmNode({
   id,
   data,
   selected,
 }: NodeProps & { data: LlmNodeData }) {
-  const { updateNodeData, getNodeData } = useCompileFlow()
+  const { updateNodeData, getNodeData, getNodeType } = useCompileFlow()
   const [editing, setEditing] = useState(false)
   const [promptValue, setPromptValue] = useState(data.prompt || "")
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -73,6 +50,7 @@ export const LlmNode = memo(function LlmNode({
   })
   
   const sourceId = connections[0]?.source ?? null
+  const sourceHandle = connections[0]?.sourceHandle ?? null
   const sourceNode = useStore((state) =>
     sourceId ? state.nodes.find((node) => node.id === sourceId) : undefined,
   )
@@ -99,14 +77,18 @@ export const LlmNode = memo(function LlmNode({
 
     setIsRunning(true)
     
-    // Attempt to resolve input text from source node
+    // Resolve from the authoritative graph ref so build/run records are always current.
     let inputText = ""
-    if (sourceId && sourceNode) {
-      const fromStore = getSourceRawText(sourceNode.type ?? null, sourceNode.data)
-      if (fromStore.trim()) {
-        inputText = fromStore
-      } else {
-        inputText = getSourceRawText(sourceNode.type ?? null, getNodeData(sourceId))
+    if (sourceId) {
+      const sourceType = getNodeType(sourceId) ?? sourceNode?.type ?? null
+      const nodeData = getNodeData(sourceId)
+      inputText = resolveNodeOutputText(sourceType, nodeData, sourceHandle)
+      if (!inputText.trim() && sourceNode?.data) {
+        inputText = resolveNodeOutputText(
+          sourceType,
+          sourceNode.data as FlowNodeData,
+          sourceHandle,
+        )
       }
     }
 

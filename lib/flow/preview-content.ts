@@ -1,10 +1,16 @@
-import type { FlowNodeData, SpiderNodeData, UrlNodeData } from "@/lib/flow/canvas-types"
+import type {
+  FlowNodeData,
+  LlmNodeData,
+  SpiderNodeData,
+  UrlNodeData,
+} from "@/lib/flow/canvas-types"
 import type { PreviewMode } from "@/lib/flow/preview-modes"
 import { parseUrlLines } from "@/lib/workflow/sample-urls"
+import { resolveSpiderRecords } from "@/lib/flow/node-output-text"
 import {
-  resolveOutput,
-  type CollectionFormat,
-} from "@/lib/workflow/content-types"
+  formatFromSpiderHandle,
+  getSpiderOutputFamily,
+} from "@/lib/workflow/spider-output"
 import { serializeCollection } from "@/lib/workflow/serialize-records"
 
 export type PreviewDisplayKind =
@@ -193,9 +199,62 @@ const valueToSlice = (value: unknown, title?: string): PreviewSlice => {
   return { kind: "text", body: String(value), title }
 }
 
+const isRecordArray = (values: unknown[]) =>
+  values.length > 0 &&
+  values.every((entry) => entry && typeof entry === "object" && !Array.isArray(entry))
+
+const recordArrayToTable = (
+  values: unknown[],
+  title?: string,
+): PreviewContent => {
+  const columns = Array.from(
+    new Set(values.flatMap((entry) => Object.keys(entry as object))),
+  )
+  const rows = values.map((entry) =>
+    Object.fromEntries(
+      columns.map((column) => [
+        column,
+        formatCell((entry as Record<string, unknown>)[column]),
+      ]),
+    ),
+  )
+
+  if (rows.length <= TABLE_ROW_LIMIT) {
+    return {
+      title,
+      slice: {
+        kind: "table",
+        title,
+        columns,
+        rows,
+      },
+    }
+  }
+
+  return {
+    title,
+    items: Array.from(
+      { length: Math.ceil(rows.length / TABLE_ROW_LIMIT) },
+      (_, index) => {
+        const start = index * TABLE_ROW_LIMIT
+        return {
+          kind: "table" as const,
+          title: `${title ?? "Items"} ${index + 1}`,
+          columns,
+          rows: rows.slice(start, start + TABLE_ROW_LIMIT),
+        }
+      },
+    ),
+  }
+}
+
 const arrayToPreview = (values: unknown[], title?: string): PreviewContent => {
   if (values.length === 0) {
     return { title, slice: { kind: "text", body: "No items", title } }
+  }
+
+  if (isRecordArray(values)) {
+    return recordArrayToTable(values, title)
   }
 
   if (values.length === 1) {
@@ -205,25 +264,6 @@ const arrayToPreview = (values: unknown[], title?: string): PreviewContent => {
   const slices = values.map((value, index) =>
     valueToSlice(value, `${title ?? "Item"} ${index + 1}`),
   )
-
-  const allTables =
-    slices.every((slice) => slice.kind === "table") &&
-    slices.every(
-      (slice) =>
-        JSON.stringify(slice.columns ?? []) ===
-        JSON.stringify(slices[0].columns ?? []),
-    )
-
-  if (allTables && slices.length <= TABLE_ROW_LIMIT) {
-    return {
-      title,
-      slice: {
-        kind: "table",
-        columns: slices[0].columns,
-        rows: slices.flatMap((slice) => slice.rows ?? []),
-      },
-    }
-  }
 
   return { title, items: slices }
 }
@@ -292,31 +332,32 @@ export const resolvePreviewFromText = (text: string): PreviewContent => {
 
 export const resolvePreviewFromSpider = (
   spider: SpiderNodeData,
+  sourceHandle?: string | null,
 ): PreviewContent => {
-  // The Output-item dropdown drives the format. Re-serialize the already
-  // extracted records (run preferred, else the golden build set) to the
-  // currently selected collection format — instant, no rebuild / model call.
-  const records = spider.run?.records ?? spider.build?.records
-  const { family, format } = resolveOutput(spider.itemType, spider.cardinality, spider.suggestion?.family)
-  if (family === "collection" && Array.isArray(records) && records.length > 0) {
-    const collectionFormat = format as CollectionFormat
-    if (collectionFormat === "csv") {
-      return {
-        title: spider.label,
-        slice: { kind: "csv", body: serializeCollection(records, "csv") },
+  const format = formatFromSpiderHandle(sourceHandle, spider)
+  const records = resolveSpiderRecords(spider)
+  if (records) {
+    const family = getSpiderOutputFamily(spider)
+
+    if (family === "collection") {
+      if (format === "csv") {
+        return {
+          title: spider.label,
+          slice: { kind: "csv", body: serializeCollection(records, "csv") },
+        }
+      }
+      if (format === "ts") {
+        return {
+          title: spider.label,
+          slice: { kind: "text", body: serializeCollection(records, "ts") },
+        }
       }
     }
-    if (collectionFormat === "ts") {
-      return {
-        title: spider.label,
-        slice: { kind: "text", body: serializeCollection(records, "ts") },
-      }
-    }
-    // jsonl (the array-of-records default) — render the records as a table.
+
     return arrayToPreview(records, spider.label)
   }
 
-  // Otherwise fall back to whatever the spider serialized at build/run time.
+  // Fall back to whatever the spider serialized at build/run time.
   const serialized = spider.run?.preview ?? spider.build?.preview
   if (serialized && serialized.trim()) {
     return resolvePreviewFromText(serialized)
@@ -403,6 +444,7 @@ export const resolvePreviewFromSpider = (
 export const resolvePreviewContent = (
   sourceType: string | null | undefined,
   data: FlowNodeData | null,
+  sourceHandle?: string | null,
 ): PreviewContent => {
   if (!data) {
     return {
@@ -418,7 +460,20 @@ export const resolvePreviewContent = (
   }
 
   if (sourceType === "spider") {
-    return resolvePreviewFromSpider(data as SpiderNodeData)
+    return resolvePreviewFromSpider(data as SpiderNodeData, sourceHandle)
+  }
+
+  if (sourceType === "llm") {
+    const preview = (data as LlmNodeData).preview?.trim()
+    if (!preview) {
+      return {
+        slice: {
+          kind: "text",
+          body: "Run the LLM node to generate output, then preview it here.",
+        },
+      }
+    }
+    return resolvePreviewFromText(preview)
   }
 
   return {

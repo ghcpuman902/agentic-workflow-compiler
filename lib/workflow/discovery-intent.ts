@@ -1,7 +1,7 @@
 import type { Suggestion } from "@/lib/workflow/content-types"
 import {
-  cardinalityForUrlCount,
   defaultItemType,
+  resolveCardinality,
   type Cardinality,
   type ItemType,
 } from "@/lib/workflow/content-types"
@@ -27,25 +27,36 @@ export const resolveDiscoveryInputIntent = (
   urlCount: number,
 ): DiscoveryInputIntent => (urlCount > 1 ? "collection" : "ambiguous")
 
+export const selectionFromSuggestion = (
+  urlCount: number,
+  suggestion: Suggestion,
+): DiscoverySelection => {
+  const inputIntent = resolveDiscoveryInputIntent(urlCount)
+  const cardinality = resolveCardinality(urlCount, suggestion)
+
+  return {
+    inputIntent,
+    cardinality,
+    itemType: suggestion.family === "collection" ? "json" : "markdown",
+    family: suggestion.family,
+    suggestion,
+  }
+}
+
 export const resolveDiscoverySelection = (
   urlCount: number,
   suggestions: Suggestion[],
 ): DiscoverySelection => {
   const inputIntent = resolveDiscoveryInputIntent(urlCount)
-  const cardinality = cardinalityForUrlCount(urlCount)
 
   // Use the highest-confidence suggestion if available
   const bestSuggestion = suggestions[0] ?? null
-  
+
   if (bestSuggestion) {
-    return {
-      inputIntent,
-      cardinality,
-      itemType: bestSuggestion.family === "collection" ? "json" : "markdown",
-      family: bestSuggestion.family,
-      suggestion: bestSuggestion,
-    }
+    return selectionFromSuggestion(urlCount, bestSuggestion)
   }
+
+  const cardinality = resolveCardinality(urlCount, bestSuggestion)
 
   // Fallback if no suggestions
   const itemType = defaultItemType(cardinality)

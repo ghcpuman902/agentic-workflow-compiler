@@ -32,6 +32,7 @@ import {
   flowNodeInput,
   flowNodeInputRight,
   flowNodeLabel,
+  flowNodeLabelStrong,
   flowNodePanel,
   flowNodeShell,
   flowNodeStopButton,
@@ -76,14 +77,13 @@ export const DiscoverFactoryNode = memo(function DiscoverFactoryNode({
   data,
   selected,
 }: NodeProps & { data: DiscoverFactoryData }) {
-  const { updateNodeData, runDiscoverFactory } = useCompileFlow()
+  const { updateNodeData, runDiscoverFactory, confirmDiscoverOutput } = useCompileFlow()
   const isRunning = data.phase === "running"
   const isBuilding = data.phase === "building"
+  const isSelectingOutput = data.phase === "select-output"
   const isDone = data.phase === "done"
-  // "Busy" covers both Stage 1 discovery and Stage 2 build — the factory should
-  // look like it's still working until the embedded spider is built & tested.
   const isBusy = isRunning || isBuilding
-  const settingsDisabled = data.settingsLocked || isBusy || isDone
+  const settingsDisabled = data.settingsLocked || isBusy || isDone || isSelectingOutput
   const [thresholdDraft, setThresholdDraft] = useState(
     String(data.confidenceThreshold),
   )
@@ -314,6 +314,58 @@ export const DiscoverFactoryNode = memo(function DiscoverFactoryNode({
           <AgentActivityLog steps={data.activitySteps} className="mt-2" />
         ) : null}
 
+        {isSelectingOutput && data.pendingDiscovery ? (
+          <div className={cn("mt-3 space-y-2", flowNodePanel, "p-2")}>
+            <p className={flowNodeLabelStrong}>Choose output (locked on spider)</p>
+            <ul className="space-y-1">
+              {data.pendingDiscovery.suggestions.map((suggestion, index) => {
+                const selected = (data.selectedSuggestionIndex ?? 0) === index
+                return (
+                  <li key={`${suggestion.family}-${index}`}>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        updateNodeData(id, (current) => ({
+                          ...(current as DiscoverFactoryData),
+                          selectedSuggestionIndex: index,
+                        }))
+                      }
+                      onPointerDown={(event) => event.stopPropagation()}
+                      className={cn(
+                        "nodrag w-full rounded border px-2 py-1.5 text-left transition-colors",
+                        selected
+                          ? "border-violet-500 bg-violet-50 dark:border-violet-600 dark:bg-violet-950/40"
+                          : "border-border bg-background hover:bg-muted/50",
+                      )}
+                      aria-pressed={selected}
+                    >
+                      <span className="block font-mono text-[10px] text-foreground">
+                        {suggestion.label}
+                      </span>
+                      <span className="mt-0.5 block font-mono text-[9px] text-muted-foreground">
+                        {suggestion.family}
+                        {suggestion.estimatedRecords
+                          ? ` · ~${suggestion.estimatedRecords} records`
+                          : ""}
+                        {" · "}
+                        {(suggestion.confidence * 100).toFixed(0)}%
+                      </span>
+                    </button>
+                  </li>
+                )
+              })}
+            </ul>
+            <button
+              type="button"
+              onClick={() => confirmDiscoverOutput(id)}
+              onPointerDown={(event) => event.stopPropagation()}
+              className="nodrag w-full rounded border border-emerald-500 bg-emerald-50 py-1.5 font-mono text-[10px] text-emerald-800 transition-colors hover:bg-emerald-100 dark:border-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-200 dark:hover:bg-emerald-900/50"
+            >
+              Build & freeze spider
+            </button>
+          </div>
+        ) : null}
+
         {data.embeddedSpider ? (
           <EmbeddedSpiderCard factoryId={id} spider={data.embeddedSpider} />
         ) : null}
@@ -360,4 +412,6 @@ export const makeDiscoverFactoryData = (): DiscoverFactoryData => ({
   spiderNodeId: null,
   embeddedSpider: null,
   discovery: null,
+  pendingDiscovery: null,
+  selectedSuggestionIndex: 0,
 })
