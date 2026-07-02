@@ -9,6 +9,12 @@ Paste live URLs into a node graph. Agents discover data shapes, compile tested T
 | **Devpost** | [devpost.com/software/asdfsad](https://devpost.com/software/asdfsad) — demo video, screenshots, and submission story |
 | **GitHub** | [github.com/ghcpuman902/agentic-workflow-compiler](https://github.com/ghcpuman902/agentic-workflow-compiler) |
 
+![Agentic Workflow Compiler — node canvas](docs/assets/thumbnail.png)
+
+![Discover → build → Spider — hackathon demo](docs/assets/demo.gif)
+
+*Same walkthrough as on [Devpost](https://devpost.com/software/asdfsad). [Full demo (MP4)](docs/assets/demo.mp4).*
+
 ---
 
 ## What it is
